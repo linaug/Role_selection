@@ -1,0 +1,12 @@
+REWARDS_ROLE = "rewards_role"
+# PREV_REWARDS_ROLE = "prev_rewards_role"
+ACTIONS_ROLE = "actions_role"
+# PREV_ACTIONS_ROLE = "prev_actions_role"
+ACTIONS_PRIMITIVE = "actions_primitive"
+# PREV_ACTIONS_PRIMITIVE = "prev_actions_primitive"
+# VALUES_ROLE = "values_role"
+VF_PREDS_ROLE = "vf_preds_role"
+# ADVANTAGES_ROLE = "advantages_role"
+# VALUE_TARGETS_ROLE = "value_targets_role"
+# ADVANTAGE_ROLE = "advantage_role"
+
