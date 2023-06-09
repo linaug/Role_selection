@@ -23,7 +23,7 @@ from ray.tune.logger import NoopLogger
 from ray.tune.registry import register_env
 from ray.util.multiprocessing import Pool
 
-DEBUG = False
+DEBUG = True
 RANDOM = False
 
 if not DEBUG:
@@ -326,10 +326,10 @@ def serve():
     run_trial(checkpoint_path=args.checkpoint, trial=args.seed, render=True, save_file=directory)
 
 if __name__ == '__main__':
-    eval_nocomm_coop() # 无自私机器人评估
+    # eval_nocomm_coop() # 无自私机器人评估
     # eval_nocomm_adv() # 有自私机器人
     
-    # serve() # for output vedio
+    serve() # for output vedio
     exit()
 
 

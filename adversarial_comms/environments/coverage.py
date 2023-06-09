@@ -236,7 +236,7 @@ class Robot():
         # 探索区域的更新
         for exploration in list(self.dalta_exploration_pos):
             exploration_pos = self.pose + exploration
-            if is_valid_pose(exploration_pos) and (not self.world.is_occupied(exploration_pos, self) or not self.one_agent_per_cell):
+            if is_valid_pose(exploration_pos) and not self.world.is_occupied(exploration_pos, self):
                 self.world.map.exploration[exploration_pos[Y],exploration_pos[X]] = 0
 
         area_exploration_now = np.sum(self.world.map.exploration)
@@ -251,6 +251,8 @@ class Robot():
 
     def update_state(self):
         coverage = self.coverage.copy().astype(np.int)
+
+        self.world.map.exploration = np.where(self.world.map.frontier==1,0,self.world.map.exploration)
 
         # 依据探索情况更新obstacle_map
         obstacle_map = np.where(self.world.map.exploration==0,self.world.map.map,0)
@@ -505,6 +507,8 @@ class CoverageEnv(gym.Env, EzPickle):
         frontier_map = torch.where(map_exploration<1,1,0) & torch.where((frontier_map>0)&(frontier_map<1),1,0)
         self.map.frontier = frontier_map.numpy().reshape(self.cfg['world_shape'][Y],self.cfg['world_shape'][X])
 
+        self.map.frontier = np.where(self.map.map==0,self.map.frontier,0)
+
         # 依据探索情况更新obstacle_map
         # self.map.map = np.where(self.map.exploration==0,self.map.map,0)
 
@@ -703,6 +707,7 @@ class CoverageEnv(gym.Env, EzPickle):
             self.im_cov_global = ax.imshow(np.zeros(self.map.shape), vmin=0, vmax=100)
         all_team_colors = [(0, 0, 0, 0)] + [tuple(list(c) + [0.5]) for team_colors in self.teams_agents_color.values() for c in team_colors]
         coverage = self.map.exploration.copy()
+        coverage = np.where(self.map.frontier==1,0,coverage)
         # mark coverage on left side as gray
         color_index_left_side = len(all_team_colors)
         # all_team_colors += [(0, 0, 0, 0.5)] # gray
@@ -738,6 +743,8 @@ class CoverageEnv(gym.Env, EzPickle):
         # 添加多有的点至map中
         render_map = np.where(self.map.interesting==1,2,self.map.map)
         render_map = np.where(self.map.frontier==1,3,render_map)
+        # render_map = np.where(self.map.interesting==1,3,self.map.map)
+        # render_map = np.where(self.map.frontier==1,2,render_map)
 
         # 将未被探索区域赋未灰色
         # render_map = np.where(self.map.exploration==1,4,render_map)
