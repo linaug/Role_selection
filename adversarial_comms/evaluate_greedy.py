@@ -302,15 +302,25 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                 aa.savefig(save_file+"{}.png".format(i))
             # for j, reward in enumerate(list(info['rewards'].values())):
 
-            for (j, reward), (j_, duplicate_coverage_reward) in zip(enumerate(list(info['rewards'].values())), enumerate(list(info['flattened_duplicate_coverage_rewards'].values()))):
+            for (j, reward),(j__, reward_coverage),(j___, reward_explore),(j____, loudian_ratio_), (j_, reward_role) in zip(
+                enumerate(list(info['rewards'].values())), 
+                enumerate(list(info['rewards_coverage'].values())),
+                enumerate(list(info['rewards_explore'].values())),
+                enumerate(list(info['loudian_ratio'].values())),
+                enumerate(list(info['rewards_role'].values()))):
+
                 results.append({
                     'step': i,
                     'agent': j,
                     'trial': trial,
                     'reward': reward,
-                    'duplicate_coverage_reward':duplicate_coverage_reward
+                    'reward_role': reward_role,
+                    'reward_coverage': reward_coverage,
+                    'reward_explore': reward_explore,
+                    'loudian_ratio': loudian_ratio_,
+                    'explored_ratio':info['explored_ratio'],
                 })
-        
+
         ##### output vedio ####
         if render:  
             fig = plt.figure()
@@ -431,8 +441,8 @@ def eval_nocomm(env_config_func, prefix):
     #os.makedirs(os.path.join(args.out_path, "eval_coop-checkpoint-.pkl"), exist_ok = True)           #makedirs 创建文件时如果路径不存在会创建这个路径
     df.to_pickle(Path(exis)/filename)
 
-    filename_ = prefix + "-" + path_to_hash(args.checkpoint) + ".csv"
-    df.to_csv(Path(exis)/filename_, sep='\t', index=True)
+    # filename_ = prefix + "-" + path_to_hash(args.checkpoint) + ".csv"
+    # df.to_csv(Path(exis)/filename_, sep='\t', index=True)
 
 def eval_nocomm_coop():
     # Cooperative agents can communicate or not (without comm interference from adversarial agent)

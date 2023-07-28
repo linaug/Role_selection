@@ -174,6 +174,58 @@ def average_reward():
     # print("average_reward:",reward_avg_)
     # df.sort_values是整理给出的栏，如上就是整理trail和step栏.
 
+def loadtofile():
+    import sys
+    import torch
+    import numpy as np
+    mylog = open('/home/zln/ray_results/recode.log',mode='a',encoding='utf-8')
+    for i in range(10):
+        print("adcccccc",file=mylog)
+    a = torch.tensor([1,2,3,4])
+    b = torch.tensor([2,2,3,2])
+    c = a - b
+    
+    print("c",c)
+    print(c < 1)
+    print(((c<1)==True).sum().item())
+    mylog.close()
+
+def output_vedio():
+
+    import matplotlib.pyplot as plt
+    import cv2 as cv
+    import matplotlib.animation as animation
+    import os
+    import glob
+
+    save_file = '/home/zln/adv_results/search_rescue/0717_model_add_loudian/150_timestep/'
+    max_episode_len = 150
+    fig = plt.figure()
+    ims = []
+
+    for ii in range(max_episode_len):
+        # 用opencv读取图片
+        img = cv.imread(save_file+str(ii)+'.png')
+        (r, g, b) = cv.split(img) 
+        img = cv.merge([b,g,r])  
+        im = plt.imshow(img, animated=True)
+        ims.append([im])
+    ani = animation.ArtistAnimation(fig, ims, interval=500, blit=True, repeat_delay=False)
+    ani.save(save_file+"movie0.mp4")
+    plt.show()
+
+    filelist = glob.glob(os.path.join(save_file, "*.png"))
+    for f in filelist:
+        os.remove(f)
+
+def pandas_sers():
+    import pandas as pd
+
+    df1 = pd.DataFrame({'group': ['a', 'a', 'b', 'b'], 'values': [1, 1, 2, 2]})
+    g1 = df1.groupby('group')
+    g1_1st_column = g1['group'].apply(pd.DataFrame)
+    print(type(g1_1st_column))
+
 
 if __name__ == '__main__':
     
@@ -184,7 +236,11 @@ if __name__ == '__main__':
     # a_average = sum(a)/len(a)
     # print('a_average:',a_average)
 
-    average_reward()
+    # average_reward()
+    # loadtofile()
+
+    # output_vedio()
+    pandas_sers()
 
 
 

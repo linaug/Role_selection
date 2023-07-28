@@ -390,7 +390,8 @@ class RoleModel(TorchModelV2, nn.Module):
             return role_dist            
 
         role_dist = role_logits_get()   
-        split_inputs = torch.split(role_dist,[2,2,2,2,2],dim=1)
+        # pdb.set_trace()
+        split_inputs = torch.split(role_dist,[2]*len(o_as),dim=1)
     
         role_dist_ = [Categorical(logits=split_inputs[i]) for i in range(len(split_inputs))]
         roles = [role_dist_[i].sample() for i in range(len(split_inputs))] # 5* [32] # roles_action
@@ -407,6 +408,8 @@ class RoleModel(TorchModelV2, nn.Module):
             elif COVERAGE:
                 for l in range(len(roles)):
                     roles_.append(torch.ones_like(roles[l],dtype = torch.float32))
+        
+            roles = roles_
 
         # for l in range(len(roles)):
         # #     roles_explore.append(torch.zeros_like(roles[l],dtype=torch.float32))
@@ -461,7 +464,7 @@ class RoleModel(TorchModelV2, nn.Module):
         # fileObject.write(jsObj)
         # fileObject.close()
 
-
+        # pdb.set_trace()
         logist_totle = torch.cat([primitive_dist,role_dist_and_action],dim=-1)
         # pdb.set_trace()
         return logist_totle, state

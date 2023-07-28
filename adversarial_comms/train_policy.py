@@ -24,7 +24,7 @@ from .trainers.hom_multi_action_dist import TorchHomogeneousMultiActionDistribut
 
 import pdb
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 torch, _ = try_import_torch()
 
 def update_dict(d, u):
@@ -59,6 +59,8 @@ class EvaluationCallbacks(DefaultCallbacks):
         episode.user_data["reward_coop"] = []
         episode.user_data["reward_role_coop"] = []
         episode.user_data["reward_coverage_coop"] = []
+        episode.user_data["reward_explore_coop"] = []
+        episode.user_data["reward_loudian_coop"] = []
 
     def on_episode_step(self, worker, base_env, episode, **kwargs):
         ep_info = episode.last_info_for()
@@ -67,12 +69,16 @@ class EvaluationCallbacks(DefaultCallbacks):
             episode.user_data["reward_coop"].append(sum(ep_info['rewards_teams'][1].values()))
             episode.user_data["reward_role_coop"].append(sum(ep_info['rewards_teams_role'][1].values()))
             episode.user_data["reward_coverage_coop"].append(sum(ep_info['rewards_coverage_teams'][1].values()))
+            episode.user_data["reward_explore_coop"].append(sum(ep_info['rewards_explore_teams'][1].values()))
+            episode.user_data["reward_loudian_coop"].append(sum(ep_info['rewards_loudian_teams'][1].values()))
 
     def on_episode_end(self, worker, base_env, policies, episode, **kwargs):
         episode.custom_metrics["reward_greedy"] = np.sum(episode.user_data["reward_greedy"])
         episode.custom_metrics["reward_coop"] = np.sum(episode.user_data["reward_coop"])
         episode.custom_metrics["reward_role_coop"] = np.sum(episode.user_data["reward_role_coop"])
         episode.custom_metrics["reward_coverage_coop"] = np.sum(episode.user_data["reward_coverage_coop"])
+        episode.custom_metrics["reward_explore_coop"] = np.sum(episode.user_data["reward_explore_coop"])
+        episode.custom_metrics["reward_loudian_coop"] = np.sum(episode.user_data["reward_loudian_coop"])
 
     '''
     def on_train_result(self, trainer, result, **kwargs):

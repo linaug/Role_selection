@@ -2,6 +2,7 @@
 continue_policy = adversarial_comms.train_policy:continue_experiment
 evaluate_adv = adversarial_comms.evaluate:eval_nocomm_adv
 evaluate_coop = adversarial_comms.evaluate:eval_nocomm_coop
+evaluate_greedy = adversarial_comms.evaluate_greedy:traditional_evaluate
 evaluate_plot = adversarial_comms.evaluate:plot
 evaluate_random = adversarial_comms.evaluate:eval_random
 evaluate_serve = adversarial_comms.evaluate:serve

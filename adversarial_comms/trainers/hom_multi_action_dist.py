@@ -22,8 +22,8 @@ class InvalidActionSpace(Exception):
 class TorchHomogeneousMultiActionDistribution(TorchMultiActionDistribution):
     def __init__(self, inputs, model, *, child_distributions, input_lens, action_space):
         # pdb.set_trace()
-        self.role_action = inputs[:,-5:].long()
-        super().__init__(inputs[:,:-5], model, child_distributions=child_distributions, input_lens=input_lens, action_space=action_space)      
+        self.role_action = inputs[:,-int(len(input_lens)/2):].long()
+        super().__init__(inputs[:,:-int(len(input_lens)/2)], model, child_distributions=child_distributions, input_lens=input_lens, action_space=action_space)      
         
     
     @override(TorchMultiActionDistribution)

@@ -2,6 +2,7 @@ import argparse
 import collections.abc
 from importlib.machinery import DEBUG_BYTECODE_SUFFIXES
 import json
+import yaml
 from tkinter import N
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,12 +19,15 @@ import glob
 import pdb
 
 from pathlib import Path
+from queue import Queue
+from queue import PriorityQueue
+from collections import deque
 from ray.rllib.models import ModelCatalog
 from ray.tune.logger import NoopLogger
 from ray.tune.registry import register_env
 from ray.util.multiprocessing import Pool
 
-DEBUG = True
+DEBUG = False
 RANDOM = False
 
 if not DEBUG:
@@ -58,7 +62,8 @@ def update_dict(d, u):
 def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_update={}, render=False, save_file=None):
     try:
         t0 = time.time()
-        cfg = {'env_config': {}, 'model': {}}
+        cfg = {'env_config': {}, 'model': {}}  
+
         if checkpoint_path is not None:
             # We might want to run policies that are not loaded from a checkpoint
             # (e.g. the random policy) and therefore need this to be optional
@@ -83,7 +88,7 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
             }
         )
         if checkpoint_path is not None:
-            aa = checkpoint_path[-4:-1]
+            aa = checkpoint_path[-5:-1]
             checkpoint_file = Path(checkpoint_path)/('checkpoint-'+os.path.basename(checkpoint_path).split('_')[-1])
             if not RANDOM:
                 trainer.restore(str(checkpoint_file)+str(aa))
@@ -95,13 +100,18 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
 
         results = []
         totle_reward = []
+
+        explored_ratio = []
+        loudian_ratio = []
+
         for i in range(cfg['env_config']['max_episode_len']):
             if not RANDOM:
                 # pdb.set_trace()
                 actions = trainer.compute_action(obs)
                 obs, reward, done, info = env.step(actions)
             else:
-                actions_random = tuple((random.randrange(0, 5)) for i in range(sum(cfg['env_config']['n_agents'])))
+                actions_random = {'primitive':tuple((random.randrange(0, 5)) for i in range(sum(cfg['env_config']['n_agents']))),
+                                  'role':tuple((random.randrange(0, 2)) for i in range(sum(cfg['env_config']['n_agents'])))}
                 obs, reward, done, info = env.step(actions_random)
 
             totle_reward.append(reward)
@@ -111,15 +121,28 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                 aa.savefig(save_file+"{}.png".format(i))
             # for j, reward in enumerate(list(info['rewards'].values())):
 
-            for (j, reward), (j_, duplicate_coverage_reward),(j__, reward_coverage) in zip(enumerate(list(info['rewards'].values())), enumerate(list(info['rewards_coverage'].values())),enumerate(list(info['flattened_duplicate_coverage_rewards'].values()))):
+            for (j, reward),(j__, reward_coverage),(j___, reward_explore),(j____, loudian_ratio_), (j_, reward_role) in zip(
+                enumerate(list(info['rewards'].values())), 
+                enumerate(list(info['rewards_coverage'].values())),
+                enumerate(list(info['rewards_explore'].values())),
+                enumerate(list(info['loudian_ratio'].values())),
+                enumerate(list(info['rewards_role'].values()))):
+
                 results.append({
                     'step': i,
                     'agent': j,
                     'trial': trial,
                     'reward': reward,
+                    'reward_role': reward_role,
                     'reward_coverage': reward_coverage,
-                    'duplicate_coverage_reward':duplicate_coverage_reward
+                    'reward_explore': reward_explore,
+                    'loudian_ratio': loudian_ratio_,
+                    'explored_ratio':info['explored_ratio'],
                 })
+
+            if i == cfg['env_config']['max_episode_len']:
+                explored_ratio.append(info['explored_ratio'])
+                loudian_ratio.append(info['rewards_loudian'][1][-1])
         
         ##### output vedio ####
         if render:  
@@ -156,7 +179,7 @@ def path_to_hash(path):
     return path_hash + '-' + checkpoint_number_string
 
 def serve_config(checkpoint_path, trials, cfg_change={}, trainer=MultiPPOTrainer):
-    with Pool(processes=5) as p:
+    with Pool(processes=10) as p:
         results = pd.concat(p.starmap(run_trial, [(trainer, checkpoint_path, t, cfg_change) for t in range(trials)]))
     return results
 
@@ -207,12 +230,12 @@ def eval_nocomm(env_config_func, prefix):
     reward_avg = None
     reward_avg_ = None
     for comm_ in range(2):
-        reward_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward']
-        reward_avg_ = reward_avg.to_numpy().astype(np.float64)
-        reward_avg_ = np.reshape(reward_avg_, (args.trials, cfg['env_config']['max_episode_len'],sum(cfg['env_config']['n_agents'])))      
-        reward_avg_ = np.sum(reward_avg_,axis=2)   
-        reward_avg_ = np.sum(reward_avg_,axis=1)       
-        reward_avg_ = np.mean(reward_avg_, axis=0)
+        reward_role_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward_role']
+        reward_role_avg_ = reward_role_avg.to_numpy().astype(np.float64)
+        reward_role_avg_ = np.reshape(reward_role_avg_, (args.trials, cfg['env_config']['max_episode_len'],sum(cfg['env_config']['n_agents'])))      
+        reward_role_avg_ = np.sum(reward_role_avg_,axis=2)   
+        reward_role_avg_ = np.sum(reward_role_avg_,axis=1)       
+        reward_role_avg_ = np.mean(reward_role_avg_, axis=0)
 
         reward_coverage_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward_coverage']
         reward_coverage_avg_ = reward_coverage_avg.to_numpy().astype(np.float64)
@@ -220,7 +243,16 @@ def eval_nocomm(env_config_func, prefix):
         reward_coverage_avg_ = np.sum(reward_coverage_avg_,axis=2)   
         reward_coverage_avg_ = np.sum(reward_coverage_avg_,axis=1)       
         reward_coverage_avg_ = np.mean(reward_coverage_avg_, axis=0)
-        print("In comm {} : average_reward is {}, average_coverage_reward is {}".format(comm_, reward_avg_, reward_coverage_avg_))
+        
+        reward_explore_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward_explore']
+        reward_explore_avg_ = reward_explore_avg.to_numpy().astype(np.float64)
+        reward_explore_avg_ = np.reshape(reward_explore_avg_, (args.trials, cfg['env_config']['max_episode_len'],sum(cfg['env_config']['n_agents'])))      
+        reward_explore_avg_ = np.sum(reward_explore_avg_,axis=2)   
+        reward_explore_avg_ = np.sum(reward_explore_avg_,axis=1)       
+        reward_explore_avg_ = np.mean(reward_explore_avg_, axis=0)
+
+        print("In comm {} : average_reward is {}, reward_coverage is {}, rewards_explore is {}".format(comm_, reward_role_avg_, reward_coverage_avg_, reward_explore_avg_))
+
 
     df.attrs = cfg
     filename = prefix + "-" + path_to_hash(args.checkpoint) + ".pkl"
@@ -228,7 +260,7 @@ def eval_nocomm(env_config_func, prefix):
     df.to_pickle(Path(args.out_file)/filename)
 
     # filename_ = prefix + "-" + path_to_hash(args.checkpoint) + ".txt"
-    # df.to_csv(Path(args.out_path)/filename_, sep='\t', index=True)
+    # df.to_csv(Path(args.out_file)/filename_, sep='\t', index=True)
 
 def eval_nocomm_coop():
     # Cooperative agents can communicate or not (without comm interference from adversarial agent)
@@ -259,7 +291,6 @@ def plot():
     parser = argparse.ArgumentParser()
     parser.add_argument("data")
     parser.add_argument("data2")
-    # parser.add_argument("data3")
     parser.add_argument("-o", "--out_file", default=None)
     args = parser.parse_args()
 
@@ -268,7 +299,6 @@ def plot():
 
     df = pd.read_pickle(args.data)
     df2 = pd.read_pickle(args.data2)
-    # df3 = pd.read_pickle(args.data3)
     if Path(args.data).name.startswith('eval_adv'):
         plot_agent(ax, df[(df['comm'] == False) & (df['agent'] == 0)], 'r', step_aggregation='mean', linestyle=':')
         plot_agent(ax, df[(df['comm'] == False) & (df['agent'] > 0)], 'b', step_aggregation='mean', linestyle=':')
@@ -277,14 +307,9 @@ def plot():
     elif Path(args.data).name.startswith('eval_coop'):
         plot_agent(ax, df[(df['comm'] == False) & (df['agent'] > 0)], 'b', step_aggregation='sum', linestyle=':')
         plot_agent(ax, df[(df['comm'] == True) & (df['agent'] > 0)], 'b', step_aggregation='sum', linestyle='-')
-        # plot_agent_duplicate(ax, df[(df['comm'] == False) & (df['agent'] > 0)], 'b', step_aggregation='sum', linestyle=':')
-        # plot_agent_duplicate(ax, df[(df['comm'] == True) & (df['agent'] > 0)], 'b', step_aggregation='sum', linestyle='-')
 
         plot_agent(ax, df2[(df2['comm'] == False) & (df2['agent'] > 0)], 'r', step_aggregation='sum', linestyle=':')
         plot_agent(ax, df2[(df2['comm'] == True) & (df2['agent'] > 0)], 'r', step_aggregation='sum', linestyle='-')
-
-        # plot_agent_duplicate(ax, df2[(df2['comm'] == False) & (df2['agent'] > 0)], 'k', step_aggregation='sum', linestyle=':')
-        # plot_agent_duplicate(ax, df2[(df2['comm'] == True) & (df2['agent'] > 0)], 'k', step_aggregation='sum', linestyle='-')
 
     elif Path(args.data).name.startswith('eval_rand'):
         plot_agent(ax, df[df['agent'] > 0], 'b', step_aggregation='sum', linestyle='-')
@@ -326,10 +351,10 @@ def serve():
     run_trial(checkpoint_path=args.checkpoint, trial=args.seed, render=True, save_file=directory)
 
 if __name__ == '__main__':
-    # eval_nocomm_coop() # 无自私机器人评估
+    eval_nocomm_coop() # 无自私机器人评估
     # eval_nocomm_adv() # 有自私机器人
     
-    serve() # for output vedio
+    # serve() # for output vedio
     exit()
 
 

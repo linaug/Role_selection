@@ -35,7 +35,8 @@ setuptools.setup(
             'evaluate_adv=adversarial_comms.evaluate:eval_nocomm_adv',
             'evaluate_random=adversarial_comms.evaluate:eval_random',
             'evaluate_plot=adversarial_comms.evaluate:plot',
-            'evaluate_serve=adversarial_comms.evaluate:serve'
+            'evaluate_serve=adversarial_comms.evaluate:serve',
+            'evaluate_greedy=adversarial_comms.evaluate_greedy:traditional_evaluate'
         ],
     },
     python_requires='>=3.7',

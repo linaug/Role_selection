@@ -9,12 +9,12 @@ vf_clip_param: 250.0
 vf_share_layers: False
 vf_loss_coeff: 1.0e-4
 entropy_coeff: 0.01
-train_batch_size: 500
+train_batch_size: 5000
 rollout_fragment_length: 100
-sgd_minibatch_size: 100
+sgd_minibatch_size: 500
 num_sgd_iter: 5
-num_workers: 1
-num_envs_per_worker: 1
+num_workers: 5
+num_envs_per_worker: 16
 # num_workers: 1
 # num_envs_per_worker: 1
 lr: 5.0e-4
@@ -60,13 +60,14 @@ env_config:
     collapse_state: False
     termination_no_new_coverage: 10
     agent_observability_radius: 16
-    max_episode_len: 50 # 24*24*0.6
+    max_episode_len: 150 # 24*24*0.6
     n_agents: [1, 4]
     disabled_teams_step: [True, False]
     disabled_teams_comms: [True, False]
     min_coverable_area_fraction: 0.6
-    min_interesting_area_fraction: 0.24
+    min_interesting_area_fraction: 0.08  # 0.24对应150个兴趣点  0.16对应100个兴趣点 0.08对应50个兴趣点 
     map_mode: random
+    role_reward_mode: loudian
     reward_annealing: 0.0
     communication_range: 10.0
     ensure_connectivity: True
@@ -81,7 +82,7 @@ evaluation_num_episodes: 12
 evaluation_config:
     env_config:
         termination_no_new_coverage: -1
-        max_episode_len: 50 # 24*24*0.6
+        max_episode_len: 150 # 24*24*0.6
         episode_termination: default
         operation_mode: all
         ensure_connectivity: False

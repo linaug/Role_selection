@@ -27,6 +27,7 @@ from ray.rllib.utils.torch_ops import apply_grad_clipping, \
     convert_to_torch_tensor, explained_variance, sequence_mask
 from ray.rllib.utils.typing import TensorType, TrainerConfigDict, AgentID
 from ray.rllib.evaluation.postprocessing import discount_cumsum
+import sys
 
 
 import pdb
@@ -237,6 +238,7 @@ def ppo_surrogate_loss(
     mean_kl_primitive = reduce_mean_valid(torch.sum(action_kl['primitive'], axis=1))
     mean_kl_role = reduce_mean_valid(torch.sum(action_kl['role'], axis=1))
 
+    mylog = open('/home/zln/ray_results/recode.log',mode='a',encoding='utf-8')
     for i in range(len(train_batch[SampleBatch.VF_PREDS][0])):
         lens_ = train_batch[SampleBatch.VF_PREDS].shape
         # print('-*'*80)
@@ -253,17 +255,33 @@ def ppo_surrogate_loss(
         mean_entropy_primitive = reduce_mean_valid(entropies['primitive'][:, i])
         mean_entropy_role = reduce_mean_valid(entropies['role'][:, i])
 
-        surrogate_loss_primitive = torch.min(
-            train_batch[Postprocessing.ADVANTAGES][..., i] * logp_ratio_primitive,
-            train_batch[Postprocessing.ADVANTAGES][..., i] * torch.clamp(
-                logp_ratio_primitive, 1 - policy.config["clip_param"],
-                1 + policy.config["clip_param"]))
-        
-        surrogate_loss_role = torch.min(
-            train_batch[Postprocessing.ADVANTAGES_ROLE][..., i] * logp_ratio_role,
-            train_batch[Postprocessing.ADVANTAGES_ROLE][..., i] * torch.clamp(
-                logp_ratio_role, 1 - policy.config["clip_param"],
-                1 + policy.config["clip_param"]))
+        SIL = True
+        if SIL:
+            SIL_ADVANTAGE = torch.where(train_batch[Postprocessing.ADVANTAGES][..., i]>0,5*train_batch[Postprocessing.ADVANTAGES][..., i]>0,train_batch[Postprocessing.ADVANTAGES][..., i]>0)
+            SIL_ADVANTAGE_ROLE = torch.where(train_batch[Postprocessing.ADVANTAGES_ROLE][..., i]>0,5*train_batch[Postprocessing.ADVANTAGES_ROLE][..., i]>0,train_batch[Postprocessing.ADVANTAGES_ROLE][..., i]>0)
+            surrogate_loss_primitive = torch.min(
+                SIL_ADVANTAGE * logp_ratio_primitive,
+                SIL_ADVANTAGE * torch.clamp(
+                    logp_ratio_primitive, 1 - policy.config["clip_param"],
+                    1 + policy.config["clip_param"]))
+            
+            surrogate_loss_role = torch.min(
+                SIL_ADVANTAGE_ROLE * logp_ratio_role,
+                SIL_ADVANTAGE_ROLE * torch.clamp(
+                    logp_ratio_role, 1 - policy.config["clip_param"],
+                    1 + policy.config["clip_param"]))
+        else:
+            surrogate_loss_primitive = torch.min(
+                train_batch[Postprocessing.ADVANTAGES][..., i] * logp_ratio_primitive,
+                train_batch[Postprocessing.ADVANTAGES][..., i] * torch.clamp(
+                    logp_ratio_primitive, 1 - policy.config["clip_param"],
+                    1 + policy.config["clip_param"]))
+            
+            surrogate_loss_role = torch.min(
+                train_batch[Postprocessing.ADVANTAGES_ROLE][..., i] * logp_ratio_role,
+                train_batch[Postprocessing.ADVANTAGES_ROLE][..., i] * torch.clamp(
+                    logp_ratio_role, 1 - policy.config["clip_param"],
+                    1 + policy.config["clip_param"]))
         
         mean_policy_loss_primitive = reduce_mean_valid(-surrogate_loss_primitive)
 
@@ -271,16 +289,27 @@ def ppo_surrogate_loss(
 
         if policy.config["use_gae"]:
             ################### primitive ########################
+            # pdb.set_trace()
             prev_value_fn_out_primitive = train_batch[SampleBatch.VF_PREDS][..., i]
+
             value_fn_out_primitive = model.value_function()['primitive'][..., i]
-            vf_loss1_primitive = torch.pow(
-                value_fn_out_primitive - train_batch[Postprocessing.VALUE_TARGETS][..., i], 2.0)
-            vf_clipped_primitive = prev_value_fn_out_primitive + torch.clamp(
-                value_fn_out_primitive - prev_value_fn_out_primitive, -policy.config["vf_clip_param"],
-                policy.config["vf_clip_param"])
-            vf_loss2_primitive = torch.pow(
-                vf_clipped_primitive - train_batch[Postprocessing.VALUE_TARGETS][..., i], 2.0)
+            
+            valid_value_data = True
+            if valid_value_data:
+                batch_value = value_fn_out_primitive.shape[0]
+                TD_error = value_fn_out_primitive - train_batch[Postprocessing.VALUE_TARGETS][..., i]
+                yuzhi = 0.05 * train_batch[Postprocessing.VALUE_TARGETS][..., i]
+                valid = TD_error < yuzhi
+                print('There are {} valid data in batch {} of {}'.format((valid==True).sum().item(),batch_value,i),file=mylog)       
+
+            vf_loss1_primitive = torch.pow(value_fn_out_primitive - train_batch[Postprocessing.VALUE_TARGETS][..., i], 2.0)
+
+            vf_clipped_primitive = prev_value_fn_out_primitive + torch.clamp(value_fn_out_primitive - prev_value_fn_out_primitive, -policy.config["vf_clip_param"],policy.config["vf_clip_param"])
+
+            vf_loss2_primitive = torch.pow(vf_clipped_primitive - train_batch[Postprocessing.VALUE_TARGETS][..., i], 2.0)
+
             vf_loss_primitive = torch.max(vf_loss1_primitive, vf_loss2_primitive)
+
             mean_vf_loss_primitive = reduce_mean_valid(vf_loss_primitive)
             total_loss_primitive = reduce_mean_valid(
                 -surrogate_loss_primitive + policy.kl_coeff * action_kl['primitive'][:, i] +
@@ -325,6 +354,7 @@ def ppo_surrogate_loss(
                 "mean_entropy": mean_entropy,
             }
         )
+    mylog.close()
     policy._total_loss = (torch.sum(torch.stack([o["total_loss"] for o in loss_data])),)
     policy._mean_policy_loss = torch.mean(
         torch.stack([o["mean_policy_loss"] for o in loss_data])

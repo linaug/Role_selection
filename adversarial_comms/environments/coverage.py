@@ -139,7 +139,8 @@ class Robot():
                  collapse_state,
                  termination_no_new_coverage,
                  agent_observability_radius,
-                 one_agent_per_cell):
+                 one_agent_per_cell,
+                 role_reward_mode):
         self.index = index
         self.world = world
         self.termination_no_new_coverage = termination_no_new_coverage
@@ -150,8 +151,10 @@ class Robot():
         self.initialized_rendering = False
         self.agent_observability_radius = agent_observability_radius
         self.one_agent_per_cell = one_agent_per_cell
+        self.role_reward_mode = role_reward_mode
         self.pose = np.array([-1, -1]) # assign negative pose so that during reset agents are not placed at same initial position
         self.action_role = 0
+        self.ratio_loudian = 0
         self.reset(random_state)
 
         def points_in_circle(radius):
@@ -194,6 +197,7 @@ class Robot():
         self.reward_role = 0
         self.reward_explore = 0
         self.reward_coverage = 0
+        self.reward_loudian = 0
         self.duplicate_coverage_reward = 0  # lina
 
     def step(self, action, action_role, alpha, beta):
@@ -218,6 +222,17 @@ class Robot():
         if is_valid_pose(desired_pos) and (not self.world.is_occupied(desired_pos, self) or not self.one_agent_per_cell) and not is_obstacle(desired_pos):
             self.pose = desired_pos
 
+        def cal_loudian():
+            interesting_map_ = np.where(self.world.map.exploration==0,self.world.map.interesting,0)
+            uncover_in_explored = np.sum((interesting_map_==1)) # 已经探索区域内的未覆盖的兴趣点之和
+            explored = np.sum((self.world.map.exploration==0)) # 已探索区域大小
+            if explored == 0:
+                return 0
+            else:
+                return uncover_in_explored/explored
+        
+        loudian_pre = cal_loudian()
+
         # if self.world.map.coverage[self.pose[Y], self.pose[X]] == 0:
         if self.world.map.interesting[self.pose[Y], self.pose[X]] == 1:
             self.world.map.coverage[self.pose[Y], self.pose[X]] = self.index
@@ -239,15 +254,37 @@ class Robot():
             if is_valid_pose(exploration_pos) and not self.world.is_occupied(exploration_pos, self):
                 self.world.map.exploration[exploration_pos[Y],exploration_pos[X]] = 0
 
+        # 计算探索奖励
         area_exploration_now = np.sum(self.world.map.exploration)
-
-        explore_area_diff = area_exploration_prev - area_exploration_now
-
+        explore_area_diff = area_exploration_prev - area_exploration_now            
         self.reward_explore = explore_area_diff/self.explore_ability if not (self.prev_pose == self.pose).all() else 0
 
-        self.reward = self.reward_explore if self.action_role == 0 else self.reward_coverage
-        # self.reward_role = alpha * self.reward_explore +  beta * self.reward_coverage
-        self.reward_role = self.reward
+        # self.reward = self.reward_explore if self.action_role == 0 else self.reward_coverage
+        # self.reward = self.reward_explore
+
+        # 计算漏点率
+        loudian_now = cal_loudian()
+
+        self.ratio_loudian = loudian_now
+
+        if loudian_pre == 0:
+            self.reward_loudian = math.tanh(30*(loudian_now))
+        else:
+            self.reward_loudian = math.tanh(5*(loudian_pre-loudian_now))
+
+        if self.role_reward_mode == "explore_and_loudian":
+            self.reward =  self.reward_explore + self.reward_loudian
+            self.reward_role =  self.reward_explore + self.reward_loudian
+        elif self.role_reward_mode == "explore_and_cover":
+            self.reward_role =  self.reward_explore + self.reward_coverage
+        elif self.role_reward_mode == "cover":
+            self.reward_role = self.reward_coverage
+        elif self.role_reward_mode == "explore":
+            self.reward = self.reward_explore
+            self.reward_role = self.reward_explore
+        elif self.role_reward_mode == "loudian":
+            self.reward = self.reward_loudian
+            self.reward_role = self.reward_loudian
 
     def update_state(self):
         coverage = self.coverage.copy().astype(np.int)
@@ -290,7 +327,7 @@ class Robot():
         self.state = np.stack(state_data, axis=-1).astype(np.uint8)
 
         done = self.no_new_coverage_steps == self.termination_no_new_coverage
-        return self.state, self.reward, self.reward_coverage, self.reward_role, self.duplicate_coverage_reward, done, {}
+        return self.state, self.reward, self.reward_explore, self.reward_coverage, self.ratio_loudian, self.reward_role, self.duplicate_coverage_reward, done, {}
 
     def to_abs_frame(self, data):
         half_state_size = int(self.state_size / 2)
@@ -348,8 +385,8 @@ class CoverageEnv(gym.Env, EzPickle):
         
         # self.action_space = spaces.Tuple((spaces.Discrete(5),)*sum(self.cfg['n_agents']))
         self.action_space = spaces.Dict({
-            'role':spaces.Tuple((spaces.Discrete(2),)*5),
-            'primitive':spaces.Tuple((spaces.Discrete(5),)*5),
+            'role':spaces.Tuple((spaces.Discrete(2),)*sum(self.cfg['n_agents'])),
+            'primitive':spaces.Tuple((spaces.Discrete(5),)*sum(self.cfg['n_agents'])),
         })
         
         self.map = WorldMap(self.world_random_state, self.cfg['world_shape'], self.cfg['min_coverable_area_fraction'],self.cfg['min_interesting_area_fraction'])
@@ -369,7 +406,9 @@ class CoverageEnv(gym.Env, EzPickle):
                         self.cfg['collapse_state'],
                         self.cfg['termination_no_new_coverage'],
                         self.cfg['agent_observability_radius'],
-                        self.cfg['one_agent_per_cell']
+                        self.cfg['one_agent_per_cell'],
+                        self.cfg['role_reward_mode']
+
                     )
                 )
                 agent_index += 1
@@ -516,18 +555,22 @@ class CoverageEnv(gym.Env, EzPickle):
         # self.map.interesting = np.where(self.map.exploration==0,self.map.interesting,0)
         
 
-        states, rewards, rewards_coverage, duplicate_coverage_rewards, rewards_role = {}, {}, {},{},{}
+        states, rewards, rewards_explore, rewards_coverage, rewards_loudian, duplicate_coverage_rewards, rewards_role = {}, {}, {},{},{},{},{}
         for team_key, team in self.teams.items():
             states[team_key] = []
             rewards[team_key] = {}
             rewards_coverage[team_key] = {}
+            rewards_explore[team_key] = {}
+            rewards_loudian[team_key] = {}
             rewards_role[team_key] = {}
             duplicate_coverage_rewards[team_key] = {}
             for i, agent in enumerate(team):
-                state, reward, reward_coverage, reward_role, duplicate_coverage_reward, done, _ = agent.update_state()
+                state, reward, reward_explore,reward_coverage, reward_loudian,reward_role, duplicate_coverage_reward, done, _ = agent.update_state()
                 states[team_key].append(state)
                 rewards[team_key][i] = reward
                 rewards_coverage[team_key][i] = reward_coverage
+                rewards_explore[team_key][i] = reward_explore
+                rewards_loudian[team_key][i] = reward_loudian
                 rewards_role[team_key][i] = reward_role
                 duplicate_coverage_rewards[team_key][i] = duplicate_coverage_reward
                 if done:
@@ -638,12 +681,14 @@ class CoverageEnv(gym.Env, EzPickle):
         else:
             raise NotImplementedError("Unknown operation_mode")
 
-        flattened_rewards,flattened_duplicate_coverage_rewards,flattened_rewards_role ,flattened_rewards_coverage= {},{},{},{}
+        flattened_rewards,flattened_duplicate_coverage_rewards,flattened_rewards_role ,flattened_rewards_coverage,flattened_rewards_explore,flattened_loudian_ratio= {},{},{},{},{},{}
         agent_index = 0
         for key in self.teams.keys():
-            for r_role, r_coverage, r, r_duplicate in zip(rewards_role[key].values(),rewards_coverage[key].values(),rewards[key].values(),duplicate_coverage_rewards[key].values()):
+            for r_role, r_explore, r_coverage, r_loudian, r, r_duplicate in zip(rewards_role[key].values(),rewards_explore[key].values(),rewards_coverage[key].values(),rewards_loudian[key].values(),rewards[key].values(),duplicate_coverage_rewards[key].values()):
                 flattened_rewards_role[agent_index] = r_role
                 flattened_rewards_coverage[agent_index] = r_coverage
+                flattened_rewards_explore[agent_index] = r_explore
+                flattened_loudian_ratio[agent_index] = r_loudian
                 flattened_rewards[agent_index] = r
                 flattened_duplicate_coverage_rewards[agent_index] = r_duplicate
                 agent_index += 1
@@ -653,10 +698,15 @@ class CoverageEnv(gym.Env, EzPickle):
             'coverable_area': self.map.get_coverable_area(),
             'rewards_teams': rewards,
             'rewards_coverage_teams': rewards_coverage,
+            'rewards_explore_teams': rewards_explore,
+            'rewards_loudian_teams': rewards_loudian,
             'rewards_teams_role': rewards_role,
             'rewards': flattened_rewards,
             'rewards_coverage': flattened_rewards_coverage,
+            'rewards_explore': flattened_rewards_explore,
             'rewards_role': flattened_rewards_role,
+            'loudian_ratio': flattened_loudian_ratio,
+            'explored_ratio': np.sum((self.map.exploration==0))/math.pow(self.cfg['world_shape'][0],2),
             'role_rewards_sum': sum([sum(t.values()) for i, t in enumerate(rewards_role.values()) if not self.cfg['disabled_teams_step'][i]]),
             'flattened_duplicate_coverage_rewards':flattened_duplicate_coverage_rewards
         }
