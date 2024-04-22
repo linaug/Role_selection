@@ -359,8 +359,8 @@ class RoleModel(TorchModelV2, nn.Module):
                 extract_feature_map[:, :self.cnn_compression, id_agent] = coop_agents_cnn[id_agent]
 
             shared_feature = self.GFL(extract_feature_map)
-            for id_agent in range(1, len(o_as)):
-                this_entity = shared_feature[..., id_agent]
+            # for id_agent in range(1, len(o_as)):
+            #     this_entity = shared_feature[..., id_agent]
 
             logits = torch.empty(batch_size, self.n_agents, 2).to(device)
             values = torch.empty(batch_size, self.n_agents).to(device)

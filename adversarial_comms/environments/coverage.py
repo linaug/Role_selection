@@ -23,7 +23,7 @@ import pdb
 # https://bair.berkeley.edu/blog/2018/12/12/rllib/
 
 DEFAULT_OPTIONS = {
-    'seed': 0,
+    'seed': 1,
     'world_shape': [25, 25],
     'state_size': 48,
     'collapse_state': False,
@@ -69,12 +69,16 @@ class WorldMap():
             else:
                 self.map = np.ones(self.shape, dtype=np.uint8)
                 p = np.array([random_state.randint(0, self.shape[c]) for c in [Y, X]])
+                # print('p',p)
                 while self.get_coverable_area_faction() < self.min_coverable_area_fraction:
                     d_p = np.array([[0, 1], [0, -1], [-1, 0], [1, 0]][random_state.randint(0, 4)])   #*random_state.randint(1, 5)
+                    # print('d_p',d_p)
                     p_new = np.clip(p + d_p, [0,0], np.array(self.shape)-1)
+                    # print('p_new',p_new)
                     self.map[min(p[Y],p_new[Y]):max(p[Y],p_new[Y])+1, min(p[X],p_new[X]):max(p[X],p_new[X])+1] = 0
-                    #print(min(p[Y],p_new[Y]),max(p[Y],p_new[Y])+1, min(p[X],p_new[X]),max(p[X],p_new[X])+1, np.sum(self.map))
+                    # print(min(p[Y],p_new[Y]),max(p[Y],p_new[Y])+1, min(p[X],p_new[X]),max(p[X],p_new[X])+1)
                     p = p_new
+                    # pdb.set_trace()
         elif mode == "split_half_fixed" or mode == "split_half_fixed_block" or mode == "split_half_fixed_block_same_side":
             self.map = np.zeros(self.shape, dtype=np.uint8)
             self.map[:, int(self.shape[X]/2)] = 1
@@ -85,6 +89,10 @@ class WorldMap():
         # interestings = 0
         # interesting_num = 10
         self.interesting = np.zeros(self.shape, dtype=np.int)
+        print('*'*80)
+        print('min_coverable_area_fraction:',self.min_coverable_area_fraction)
+        print('min_interesting_area_fraction:',self.min_interesting_area_fraction)
+        print('*'*80)
         while self.get_interesting_area_fraction() < self.min_interesting_area_fraction:
             p_interestings = np.array([random_state.randint(0,self.shape[c]) for c in [Y,X]])
             if self.map[p_interestings[Y],p_interestings[X]] == 0:
@@ -140,7 +148,8 @@ class Robot():
                  termination_no_new_coverage,
                  agent_observability_radius,
                  one_agent_per_cell,
-                 role_reward_mode):
+                 role_reward_mode,
+                 min_interesting_area_fraction):
         self.index = index
         self.world = world
         self.termination_no_new_coverage = termination_no_new_coverage
@@ -152,9 +161,10 @@ class Robot():
         self.agent_observability_radius = agent_observability_radius
         self.one_agent_per_cell = one_agent_per_cell
         self.role_reward_mode = role_reward_mode
+        self.min_interesting_area_fraction = min_interesting_area_fraction
         self.pose = np.array([-1, -1]) # assign negative pose so that during reset agents are not placed at same initial position
         self.action_role = 0
-        self.ratio_loudian = 0
+        self.ratio_covered = 0
         self.reset(random_state)
 
         def points_in_circle(radius):
@@ -190,7 +200,8 @@ class Robot():
             self.pose = random_pos(current_pose_var)
             current_pose_var += 0.1
 
-        self.coverage = np.zeros(self.world.map.shape, dtype=np.bool)
+        self.world_shape = self.world.map.shape
+        self.coverage = np.zeros(self.world_shape, dtype=np.bool)
         self.state = None
         self.no_new_coverage_steps = 0
         self.reward = 0
@@ -198,12 +209,11 @@ class Robot():
         self.reward_explore = 0
         self.reward_coverage = 0
         self.reward_loudian = 0
+        self.explored_area = 0
         self.duplicate_coverage_reward = 0  # lina
 
     def step(self, action, action_role, alpha, beta):
-
         self.action_role = action_role
-        # self.action_role = 0
         action = Action(action)
 
         delta_pose = {
@@ -231,6 +241,18 @@ class Robot():
             else:
                 return uncover_in_explored/explored
         
+        def cal_covered():
+            interesting_map_ = np.where(self.world.map.exploration==0,self.world.map.interesting,0)
+            uncover_in_explored = np.sum((interesting_map_==1)) # 已经探索区域内的未覆盖的兴趣点之和
+            uncover_in_unexpolored = np.sum((np.where(self.world.map.exploration==1,self.world.map.interesting,0)==1)) #未探索区域内的兴趣点
+            all_interest_point = self.min_interesting_area_fraction*self.world_shape[0]*self.world_shape[0]
+            explored = np.sum((self.world.map.exploration==0)) # 已探索区域大小
+
+            if explored == 0:
+                return 0
+            else:
+                return (all_interest_point-uncover_in_unexpolored-uncover_in_explored)/(all_interest_point-uncover_in_unexpolored)
+            
         loudian_pre = cal_loudian()
 
         # if self.world.map.coverage[self.pose[Y], self.pose[X]] == 0:
@@ -249,10 +271,14 @@ class Robot():
 
         area_exploration_prev = np.sum(self.world.map.exploration)
         # 探索区域的更新
+        self.explored_area = 0
         for exploration in list(self.dalta_exploration_pos):
             exploration_pos = self.pose + exploration
             if is_valid_pose(exploration_pos) and not self.world.is_occupied(exploration_pos, self):
+                if self.world.map.exploration[exploration_pos[Y],exploration_pos[X]] == 1:
+                    self.explored_area += 1
                 self.world.map.exploration[exploration_pos[Y],exploration_pos[X]] = 0
+                
 
         # 计算探索奖励
         area_exploration_now = np.sum(self.world.map.exploration)
@@ -265,26 +291,27 @@ class Robot():
         # 计算漏点率
         loudian_now = cal_loudian()
 
-        self.ratio_loudian = loudian_now
+        self.ratio_covered = cal_covered()
 
         if loudian_pre == 0:
             self.reward_loudian = math.tanh(30*(loudian_now))
         else:
-            self.reward_loudian = math.tanh(5*(loudian_pre-loudian_now))
+            self.reward_loudian = math.tanh(15*(loudian_pre-loudian_now))
+
+        # mylog = open('/home/zln/adv_results/search_rescue/0725_interest_100/train_only_loudian/log.log',mode='a',encoding='utf-8')
 
         if self.role_reward_mode == "explore_and_loudian":
-            self.reward =  self.reward_explore + self.reward_loudian
-            self.reward_role =  self.reward_explore + self.reward_loudian
+            self.reward =  alpha*self.reward_explore + beta*self.reward_loudian
+            self.reward_role =  alpha*self.reward_explore + beta*self.reward_loudian
         elif self.role_reward_mode == "explore_and_cover":
-            self.reward_role =  self.reward_explore + self.reward_coverage
-        elif self.role_reward_mode == "cover":
-            self.reward_role = self.reward_coverage
-        elif self.role_reward_mode == "explore":
-            self.reward = self.reward_explore
-            self.reward_role = self.reward_explore
-        elif self.role_reward_mode == "loudian":
-            self.reward = self.reward_loudian
-            self.reward_role = self.reward_loudian
+            self.reward_role =  alpha*self.reward_explore + beta*self.reward_coverage
+            self.reward =  alpha*self.reward_explore + beta*self.reward_coverage
+        
+        # print("loudian_diff is {} \n loudian reward in 5 is {} \n loudian reward in 15 is {} \n loudian reward in 20 is {}".
+        #       format(loudian_pre-loudian_now,self.reward_loudian, math.tanh(15*(loudian_pre-loudian_now)),math.tanh(20*(loudian_pre-loudian_now))),
+        #       file=mylog)
+
+        # mylog.close()
 
     def update_state(self):
         coverage = self.coverage.copy().astype(np.int)
@@ -327,7 +354,7 @@ class Robot():
         self.state = np.stack(state_data, axis=-1).astype(np.uint8)
 
         done = self.no_new_coverage_steps == self.termination_no_new_coverage
-        return self.state, self.reward, self.reward_explore, self.reward_coverage, self.ratio_loudian, self.reward_role, self.duplicate_coverage_reward, done, {}
+        return self.state, self.reward, self.reward_explore, self.reward_coverage, self.ratio_covered, self.explored_area, self.reward_role, self.duplicate_coverage_reward, done, {}
 
     def to_abs_frame(self, data):
         half_state_size = int(self.state_size / 2)
@@ -347,13 +374,31 @@ class CoverageEnv(gym.Env, EzPickle):
         self.cfg.update(env_config)
 
         self.fig = None
-        self.map_colormap = colors.ListedColormap(['white', 'black', 'red','lawngreen','gray'])  # free, obstacle, unknown
+        # self.map_colormap = colors.ListedColormap(['white', 'black', 'red','lawngreen','gray'])  # free, obstacle, unknown
+        self.map_colormap = colors.ListedColormap(['white', 'dimgray', 'darkorange','lime','b'])  # free, obstacle, unknown
 
-        hsv = np.ones((self.cfg['n_agents'][1], 3))
-        hsv[..., 0] = np.linspace(160/360, 250/360, self.cfg['n_agents'][1] + 1)[:-1]  #（开始，结束，段数）
+        # 以前机器人的颜色
+        # hsv = np.ones((self.cfg['n_agents'][1], 3))
+        # hsv[..., 0] = np.linspace(160/360, 250/360, self.cfg['n_agents'][1] + 1)[:-1]  #（开始，结束，段数）
+        # self.teams_agents_color = {
+        #     0: [(1, 0, 0)],
+        #     1: colors.hsv_to_rgb(hsv)
+        # }
+        
+        # 现在每个机器人的轨迹一个颜色
+        colors_list = [(0.5, 0, 0.5),  # 紫色
+               (1, 0, 0),      # 红色
+               (0, 0, 1),      # 蓝色
+               (0, 1, 1)] 
+        team_colors = np.zeros((self.cfg['n_agents'][1], 3))
+        for i in range(len(colors_list)):
+            team_colors[i] = colors_list[i]
+        # hue_range = np.linspace(colors_range[0], colors_range[-1],self.cfg['n_agents'][1] + 1)[:-1]  #（开始，结束，段数）# 蓝色色系     
+        
+
         self.teams_agents_color = {
             0: [(1, 0, 0)],
-            1: colors.hsv_to_rgb(hsv)
+            1: team_colors
         }
 
         '''
@@ -368,7 +413,9 @@ class CoverageEnv(gym.Env, EzPickle):
 
         hsv = np.ones((len(self.cfg['n_agents']), 3))
         hsv[..., 0] = np.linspace(0, 1, len(self.cfg['n_agents']) + 1)[:-1]
-        self.teams_colors = ['r', 'b'] #colors.hsv_to_rgb(hsv)
+
+        # self.teams_colors = ['r', 'b'] #colors.hsv_to_rgb(hsv)
+        self.teams_colors = ['lawngreen', 'b'] # 改变机器人和障碍物体的颜色
 
         n_all_agents = sum(self.cfg['n_agents'])
         self.observation_space = spaces.Dict({
@@ -407,8 +454,8 @@ class CoverageEnv(gym.Env, EzPickle):
                         self.cfg['termination_no_new_coverage'],
                         self.cfg['agent_observability_radius'],
                         self.cfg['one_agent_per_cell'],
-                        self.cfg['role_reward_mode']
-
+                        self.cfg['role_reward_mode'],
+                        self.cfg['min_interesting_area_fraction']
                     )
                 )
                 agent_index += 1
@@ -471,7 +518,7 @@ class CoverageEnv(gym.Env, EzPickle):
                 while self.map.map[pose_seed[Y], pose_seed[X]] == 1:
                     pose_seed = random_pos_seed(team_key)
             for r in team:
-                r.reset(self.agent_random_state, pose_mean=pose_seed, pose_var=1)
+                r.reset(self.agent_random_state, pose_mean=pose_seed, pose_var=5)
         # return self.step([Action.NOP]*sum(self.cfg['n_agents']))[0]
         return self.step({'primitive':[Action.NOP]*sum(self.cfg['n_agents']),'role':[0]*sum(self.cfg['n_agents'])})[0]
     
@@ -555,7 +602,7 @@ class CoverageEnv(gym.Env, EzPickle):
         # self.map.interesting = np.where(self.map.exploration==0,self.map.interesting,0)
         
 
-        states, rewards, rewards_explore, rewards_coverage, rewards_loudian, duplicate_coverage_rewards, rewards_role = {}, {}, {},{},{},{},{}
+        states, rewards, rewards_explore, rewards_coverage, rewards_loudian, duplicate_coverage_rewards, rewards_role,explored_areas = {},{}, {}, {},{},{},{},{}
         for team_key, team in self.teams.items():
             states[team_key] = []
             rewards[team_key] = {}
@@ -564,13 +611,15 @@ class CoverageEnv(gym.Env, EzPickle):
             rewards_loudian[team_key] = {}
             rewards_role[team_key] = {}
             duplicate_coverage_rewards[team_key] = {}
+            explored_areas[team_key] = {}
             for i, agent in enumerate(team):
-                state, reward, reward_explore,reward_coverage, reward_loudian,reward_role, duplicate_coverage_reward, done, _ = agent.update_state()
+                state, reward, reward_explore,reward_coverage, reward_loudian,explored_area,reward_role, duplicate_coverage_reward, done, _ = agent.update_state()
                 states[team_key].append(state)
                 rewards[team_key][i] = reward
                 rewards_coverage[team_key][i] = reward_coverage
                 rewards_explore[team_key][i] = reward_explore
                 rewards_loudian[team_key][i] = reward_loudian
+                explored_areas[team_key][i] = explored_area
                 rewards_role[team_key][i] = reward_role
                 duplicate_coverage_rewards[team_key][i] = duplicate_coverage_reward
                 if done:
@@ -681,14 +730,21 @@ class CoverageEnv(gym.Env, EzPickle):
         else:
             raise NotImplementedError("Unknown operation_mode")
 
-        flattened_rewards,flattened_duplicate_coverage_rewards,flattened_rewards_role ,flattened_rewards_coverage,flattened_rewards_explore,flattened_loudian_ratio= {},{},{},{},{},{}
+        flattened_rewards,flattened_duplicate_coverage_rewards,flattened_rewards_role ,flattened_rewards_coverage,flattened_rewards_explore,flattened_loudian_ratio,flattened_explored_areas= {},{},{},{},{},{},{}
         agent_index = 0
         for key in self.teams.keys():
-            for r_role, r_explore, r_coverage, r_loudian, r, r_duplicate in zip(rewards_role[key].values(),rewards_explore[key].values(),rewards_coverage[key].values(),rewards_loudian[key].values(),rewards[key].values(),duplicate_coverage_rewards[key].values()):
+            for r_role, r_explore, r_coverage, r_loudian, explored_, r, r_duplicate in zip(rewards_role[key].values(),
+                                                                                rewards_explore[key].values(),
+                                                                                rewards_coverage[key].values(),
+                                                                                rewards_loudian[key].values(),
+                                                                                explored_areas[key].values(),
+                                                                                rewards[key].values(),
+                                                                                duplicate_coverage_rewards[key].values()):
                 flattened_rewards_role[agent_index] = r_role
                 flattened_rewards_coverage[agent_index] = r_coverage
                 flattened_rewards_explore[agent_index] = r_explore
                 flattened_loudian_ratio[agent_index] = r_loudian
+                flattened_explored_areas[agent_index] = explored_
                 flattened_rewards[agent_index] = r
                 flattened_duplicate_coverage_rewards[agent_index] = r_duplicate
                 agent_index += 1
@@ -705,11 +761,13 @@ class CoverageEnv(gym.Env, EzPickle):
             'rewards_coverage': flattened_rewards_coverage,
             'rewards_explore': flattened_rewards_explore,
             'rewards_role': flattened_rewards_role,
-            'loudian_ratio': flattened_loudian_ratio,
-            'explored_ratio': np.sum((self.map.exploration==0))/math.pow(self.cfg['world_shape'][0],2),
+            'covered_ratio': flattened_loudian_ratio,
+            'explored_ratio': sum(list(flattened_explored_areas.values()))/(self.cfg['min_coverable_area_fraction']*math.pow(self.cfg['world_shape'][0],2)),
+            'roles_cover_ratio': sum(role_actions[1:])/len(role_actions[1:]),
             'role_rewards_sum': sum([sum(t.values()) for i, t in enumerate(rewards_role.values()) if not self.cfg['disabled_teams_step'][i]]),
-            'flattened_duplicate_coverage_rewards':flattened_duplicate_coverage_rewards
+            'flattened_duplicate_coverage_rewards':flattened_duplicate_coverage_rewards,
         }
+        # pdb.set_trace()
         return state, sum([sum(t.values()) for i, t in enumerate(rewards.values()) if not self.cfg['disabled_teams_step'][i]]), done, info
 
     def clear_patches(self, ax):
@@ -756,15 +814,22 @@ class CoverageEnv(gym.Env, EzPickle):
         if not hasattr(self, 'im_cov_global'):
             self.im_cov_global = ax.imshow(np.zeros(self.map.shape), vmin=0, vmax=100)
         all_team_colors = [(0, 0, 0, 0)] + [tuple(list(c) + [0.5]) for team_colors in self.teams_agents_color.values() for c in team_colors]
+        # 正常输出demo
         coverage = self.map.exploration.copy()
         coverage = np.where(self.map.frontier==1,0,coverage)
+
+        # demo for role-selection
+        #  # coverage = self.map.exploration.copy()
+        # coverage = np.ones_like(self.map.exploration)
+        # # coverage = np.where(self.map.frontier==1,0,coverage)
+
         # mark coverage on left side as gray
         color_index_left_side = len(all_team_colors)
-        # all_team_colors += [(0, 0, 0, 0.5)] # gray
-        all_team_colors += [(0.6, 0.6, 0.6, 0.5)] # gray
+        # all_team_colors += [(0.6, 0.6, 0.6, 0.5)] # gray
+        all_team_colors += [(0.529, 0.804, 0.922, 0.5)] # 调整unexplored的颜色
         coverage[coverage == 1] = color_index_left_side
 
-        self.im_cov_global.set_data(colors.ListedColormap(all_team_colors)(coverage))
+        self.im_cov_global.set_data(colors.ListedColormap(all_team_colors)(coverage)) 
 
     def render_local_coverages(self, ax):
         if not hasattr(self, 'im_robots'):
@@ -792,28 +857,32 @@ class CoverageEnv(gym.Env, EzPickle):
 
         # 添加多有的点至map中
         render_map = np.where(self.map.interesting==1,2,self.map.map)
-        render_map = np.where(self.map.frontier==1,3,render_map)
-        # render_map = np.where(self.map.interesting==1,3,self.map.map)
-        # render_map = np.where(self.map.frontier==1,2,render_map)
-
-        # 将未被探索区域赋未灰色
-        # render_map = np.where(self.map.exploration==1,4,render_map)
+        render_map = np.where(self.map.frontier==1,3,render_map)  # 不显示边界点for outsputs envs
 
         self.im_map.set_data(self.map_colormap(render_map))
-
-        # self.im_map.set_data(self.map_colormap(self.map.map))
 
         for (team_key, team), team_colors in zip(self.teams.items(), self.teams_agents_color.values()):
             if self.cfg['disabled_teams_step'][team_key]:
                 continue
             for (agent_i, agent), color in zip(enumerate(team), team_colors):
                 rect_size = 1
+                # 不显示机器人 for outsputs envs
                 pose_microstep = agent.prev_pose + (agent.pose - agent.prev_pose)*stepsize
                 rect = patches.Rectangle((pose_microstep[1] - rect_size / 2, pose_microstep[0] - rect_size / 2), rect_size, rect_size,
-                                         linewidth=1, edgecolor=self.teams_colors[team_key], facecolor='none')
+                                         linewidth=1, edgecolor=self.teams_colors[team_key], facecolor='none') # 机器人颜色不一样的话是edgecolor=color, 一样的话就是self.team_colors[team_key]
                 ax.add_patch(rect)
-                role = 'explore' if agent.action_role == 0 else 'cover'
-                ax.text(agent.pose[1]-1.7, agent.pose[0]-0.8, role, color=self.teams_colors[team_key], clip_on=True)
+                
+                # 不显示role action for outsputs envs
+                # role = 'explore' if agent.action_role == 0 else 'cover'
+                # ax.text(agent.pose[1]-1.7, agent.pose[0]-0.8, role, color=self.teams_colors[team_key], clip_on=True)
+                
+                # 画轨迹
+                x_values = [agent.prev_pose[1], agent.pose[1]]
+                y_values = [agent.prev_pose[0], agent.pose[0]]
+                ax.plot(x_values, y_values, color=color, linewidth=2)
+                
+                # pdb.set_trace()
+                
 
         #last_reward = sum([r.reward for r in self.robots.values()])
         #ax.set_title(
@@ -846,10 +915,10 @@ class CoverageEnv(gym.Env, EzPickle):
 
         self.clear_patches(self.ax_overview)
         self.render_overview(self.ax_overview, stepsize)
-        #self.render_local_coverages(self.ax_overview)
-        self.render_global_exploration(self.ax_overview)
+        # self.render_local_coverages(self.ax_overview)
+        self.render_global_exploration(self.ax_overview)  # unexplored set
         A = self.compute_gso(0)
-        self.render_adjacency(A, 0, self.ax_overview, stepsize=stepsize)
+        # self.render_adjacency(A, 0, self.ax_overview, stepsize=stepsize) # demo中的communication links for outsputs envs
 
         self.fig.canvas.draw()
         self.fig.subplots_adjust(bottom=0, top=1, left=0, right=1)

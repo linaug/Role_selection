@@ -26,11 +26,11 @@ from ray.tune.logger import NoopLogger
 from ray.tune.registry import register_env
 from ray.util.multiprocessing import Pool
 
-DEBUG = True
+DEBUG = False
 RANDOM = False
 
 if not DEBUG:
-    from .environments.coverage import CoverageEnv
+    from .environments.coverage_evaluate import CoverageEnv
     from .environments.path_planning import PathPlanningEnv
     from .models.adversarial import RoleModel
     from .trainers.multiagent_ppo import MultiPPOTrainer
@@ -44,7 +44,7 @@ else:
     from trainers.random_heuristic import RandomHeuristicTrainer
     from trainers.hom_multi_action_dist import TorchHomogeneousMultiActionDistribution
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import logging
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class traditional_plan():
         interest_graph=graph_new[1]
         obstacle_graph=graph_new[0]
         #print(interest_graph)
-        start=[4,4]
+        start=[1,1]
         neighbors=([0,1],[0,-1],[-1,0],[1,0])
         frontier=Queue()
         frontier.put(start)
@@ -107,14 +107,14 @@ class traditional_plan():
 
         #寻找路径
         #print(self.goal)
-        start=[4,4]
+        start=[1,1]
         frontier_obstacle=PriorityQueue()
         frontier_obstacle.put(start,0)
         came_from=dict()
         cost_so_far=dict()
         came_from[tuple(start)]=None
         cost_so_far[tuple(start)]=0
-        next_grid=[4,4]
+        next_grid=[1,1]
         while not frontier_obstacle.empty():
             current=frontier_obstacle.get()
             if current ==self.goal:
@@ -180,7 +180,7 @@ def update_dict(d, u):
 def traditional_action(obs,plan):        #根据传递过来的状态，用来计算返回的动作
     action=[]
     action.append(random.randrange(0, 5))
-    start=[4,4]
+    start=[1,1]
     next_pose_list=[[-2,-2],]
     current_pose_list=[[-2,-2],]
     for index,value in enumerate(obs['agents']):
@@ -217,7 +217,6 @@ def traditional_action(obs,plan):        #根据传递过来的状态，用来�
 
 def heuristic(a,b):                  #启发函数，这个是用平方差，来计算的
     return abs(a[0]-b[0])+abs(a[0]-b[0])
-
 
 
 #这个函数是主要执行的部分，最后返回一些result
@@ -302,11 +301,11 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                 aa.savefig(save_file+"{}.png".format(i))
             # for j, reward in enumerate(list(info['rewards'].values())):
 
-            for (j, reward),(j__, reward_coverage),(j___, reward_explore),(j____, loudian_ratio_), (j_, reward_role) in zip(
+            for (j, reward),(j__, reward_coverage),(j___, reward_explore),(j____, covered_ratio_), (j_, reward_role) in zip(
                 enumerate(list(info['rewards'].values())), 
                 enumerate(list(info['rewards_coverage'].values())),
                 enumerate(list(info['rewards_explore'].values())),
-                enumerate(list(info['loudian_ratio'].values())),
+                enumerate(list(info['covered_ratio'].values())),
                 enumerate(list(info['rewards_role'].values()))):
 
                 results.append({
@@ -317,8 +316,9 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                     'reward_role': reward_role,
                     'reward_coverage': reward_coverage,
                     'reward_explore': reward_explore,
-                    'loudian_ratio': loudian_ratio_,
+                    'covered_ratio': covered_ratio_,
                     'explored_ratio':info['explored_ratio'],
+                    'role_cover_ratio':info['roles_cover_ratio'],
                 })
 
         ##### output vedio ####
@@ -357,7 +357,7 @@ def path_to_hash(path):
     return path_hash + '-' + checkpoint_number_string
 
 def serve_config(checkpoint_path, trials, cfg_change={}, trainer=MultiPPOTrainer,render=False, save_file=None,traditional=False):
-    with Pool(processes=2) as p:
+    with Pool(processes=8) as p:
         results = pd.concat(p.starmap(run_trial, [(trainer, checkpoint_path, t, cfg_change,render,save_file,traditional) for t in range(trials)]))  
         #在这个函数中，(trainer, checkpoint_path, t, cfg_change)这些是run_trial这个函数的输入，这里需会输出多个量然后通过concat
         #拼在一起，得到最后的结果。
@@ -437,7 +437,7 @@ def eval_nocomm(env_config_func, prefix):
         print("Directory '%s' can not be created")
 
     df.attrs = cfg
-    filename = prefix + "-" + path_to_hash(args.checkpoint) + ".pkl"
+    filename = "Greedy" + "-" + "interst" +"_"+str(cfg['env_config']['min_interesting_area_fraction']) + "-" + "coverable" +"_"+str(cfg['env_config']['min_coverable_area_fraction'])+"-"+ "robots" + "_" +str(cfg['env_config']['n_agents'][1]) +"-"+str(cfg['env_config']['ALPHA']) + "explore" + "_" + str(cfg['env_config']['BETA']) + "cover" + "-" + path_to_hash(args.checkpoint) + ".pkl"
     #os.makedirs(os.path.join(args.out_path, "eval_coop-checkpoint-.pkl"), exist_ok = True)           #makedirs 创建文件时如果路径不存在会创建这个路径
     df.to_pickle(Path(exis)/filename)
 
@@ -561,7 +561,7 @@ def traditional_evaluate():
     parser.add_argument("-e","--experiment",default="/home/zln/repos/adversarial_comms-master/adversarial_comms/config/coverage.yaml")
     parser.add_argument("-s", "--seed", type=int, default=0)
     parser.add_argument("-r", "--render", action='store_true',default=True)
-    parser.add_argument("-o", "--out_file", default="/home/zln/adv_results/search_rescue/Expert_role/")
+    parser.add_argument("-o", "--out_file", default="/home/zln/adv_results/search_rescue/0725_interest_100/train_both_explore_cover_re_2/")
     args = parser.parse_args()
     render=args.render
     directory = args.out_file

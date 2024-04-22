@@ -55,34 +55,34 @@ env_config:
     seed: 0
     world_shape: [25, 25]
     state_size: 9
-    exploration_radius: 4
+    exploration_radius: 2
     coverage_radius: 1
     collapse_state: False
     termination_no_new_coverage: 10
     agent_observability_radius: 16
-    max_episode_len: 150 # 24*24*0.6
+    max_episode_len: 50 # 24*24*0.6
     n_agents: [1, 4]
     disabled_teams_step: [True, False]
     disabled_teams_comms: [True, False]
     min_coverable_area_fraction: 0.6
-    min_interesting_area_fraction: 0.08  # 0.24对应150个兴趣点  0.16对应100个兴趣点 0.08对应50个兴趣点 
+    min_interesting_area_fraction: 0.16  # 0.24对应150个兴趣点  0.16对应100个兴趣点 0.08对应50个兴趣点 
     map_mode: random
-    role_reward_mode: loudian
+    role_reward_mode: explore_and_cover
     reward_annealing: 0.0
     communication_range: 10.0
     ensure_connectivity: True
     reward_type: semi_cooperative #semi_cooperative/cooperative
     episode_termination: early # early/fixed/default
     operation_mode: coop_only
-    ALPHA: 0.2 # exploration
-    BETA: 0.8  # coverage
+    ALPHA: 0.5 # exploration
+    BETA: 0.5 # coverage
 evaluation_num_workers: 1
 evaluation_interval: 1
 evaluation_num_episodes: 12
 evaluation_config:
     env_config:
         termination_no_new_coverage: -1
-        max_episode_len: 150 # 24*24*0.6
+        max_episode_len: 50 # 24*24*0.6
         episode_termination: default
         operation_mode: all
         ensure_connectivity: False

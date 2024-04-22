@@ -2,8 +2,11 @@ import os
 import random
 
 command = "train_policy"
-seed = random.randint(0,9)
-timestep_totle = 20
+timestep_totle = 5
+# alpha = [0.1,0.2,0.3,0.4]
+# alpha = [0.3,0.2]
+alpha = [1]
 
-train_command = str(command)+' '+'coverage'+' '+'-s'+' '+str(seed)+' '+'-t'+' '+str(timestep_totle)
-os.system(train_command) 
+for i in range(len(alpha)):
+    train_command = str(command)+' '+'coverage'+' '+'-t'+' '+str(timestep_totle)+' '+'-alpha'+' '+str(alpha[i])
+    os.system(train_command) 

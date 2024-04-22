@@ -45,7 +45,7 @@ else:
     from trainers.random_heuristic import RandomHeuristicTrainer
     from trainers.hom_multi_action_dist import TorchHomogeneousMultiActionDistribution
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import logging
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def update_dict(d, u):
             d[k] = v
     return d
 
-def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_update={}, render=False, save_file=None):
+def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, min_interest_fracrtion=0.16,min_coverable_fraction=0.6,cfg_update={}, render=False, save_file=None):
     try:
         t0 = time.time()
         cfg = {'env_config': {}, 'model': {}}  
@@ -75,6 +75,8 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
             cfg = update_dict(cfg, cfg['evaluation_config'])
         
         cfg = update_dict(cfg, cfg_update)
+        cfg = update_dict(cfg, {'env_config':  {'min_interesting_area_fraction':min_interest_fracrtion}})
+        cfg = update_dict(cfg, {'env_config':  {'min_coverable_area_fraction':min_coverable_fraction}})
 
         trainer = trainer_class(
             env=cfg['env'],
@@ -88,7 +90,7 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
             }
         )
         if checkpoint_path is not None:
-            aa = checkpoint_path[-5:-1]
+            aa = checkpoint_path[-4:-1]
             checkpoint_file = Path(checkpoint_path)/('checkpoint-'+os.path.basename(checkpoint_path).split('_')[-1])
             if not RANDOM:
                 trainer.restore(str(checkpoint_file)+str(aa))
@@ -121,11 +123,11 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                 aa.savefig(save_file+"{}.png".format(i))
             # for j, reward in enumerate(list(info['rewards'].values())):
 
-            for (j, reward),(j__, reward_coverage),(j___, reward_explore),(j____, loudian_ratio_), (j_, reward_role) in zip(
+            for (j, reward),(j__, reward_coverage),(j___, reward_explore),(j____, covered_ratio_), (j_, reward_role) in zip(
                 enumerate(list(info['rewards'].values())), 
                 enumerate(list(info['rewards_coverage'].values())),
                 enumerate(list(info['rewards_explore'].values())),
-                enumerate(list(info['loudian_ratio'].values())),
+                enumerate(list(info['covered_ratio'].values())),
                 enumerate(list(info['rewards_role'].values()))):
 
                 results.append({
@@ -136,8 +138,9 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                     'reward_role': reward_role,
                     'reward_coverage': reward_coverage,
                     'reward_explore': reward_explore,
-                    'loudian_ratio': loudian_ratio_,
+                    'covered_ratio': covered_ratio_,
                     'explored_ratio':info['explored_ratio'],
+                    'role_cover_ratio':info['roles_cover_ratio'],
                 })
 
             if i == cfg['env_config']['max_episode_len']:
@@ -155,13 +158,13 @@ def run_trial(trainer_class=MultiPPOTrainer, checkpoint_path=None, trial=0, cfg_
                 img = cv.merge([b,g,r])  
                 im = plt.imshow(img, animated=True)
                 ims.append([im])
-            ani = animation.ArtistAnimation(fig, ims, interval=500, blit=True, repeat_delay=False)
-            ani.save(os.path.join(save_file,'image0/')+"movie0.mp4")
+            # ani = animation.ArtistAnimation(fig, ims, interval=500, blit=True, repeat_delay=False)
+            # ani.save(os.path.join(save_file,'image0/')+"movie0.mp4")
             plt.show()
 
-            filelist = glob.glob(os.path.join(save_file, "*.png"))
-            for f in filelist:
-                os.remove(f)
+            # filelist = glob.glob(os.path.join(save_file, "*.png"))
+            # for f in filelist:
+            #     os.remove(f)
 
         print("Done_time", time.time() - t0)      
         # print("Average_reward:",sum(totle_reward)/len(totle_reward)) 
@@ -178,15 +181,15 @@ def path_to_hash(path):
     path_hash = path_split[-2].split('_')[-2]
     return path_hash + '-' + checkpoint_number_string
 
-def serve_config(checkpoint_path, trials, cfg_change={}, trainer=MultiPPOTrainer):
-    with Pool(processes=10) as p:
-        results = pd.concat(p.starmap(run_trial, [(trainer, checkpoint_path, t, cfg_change) for t in range(trials)]))
+def serve_config(checkpoint_path, trials, min_interest_fraction,min_coverable_fraction,cfg_change={}, trainer=MultiPPOTrainer):
+    with Pool(processes=8) as p:
+        results = pd.concat(p.starmap(run_trial, [(trainer, checkpoint_path, t, min_interest_fraction,min_coverable_fraction,cfg_change) for t in range(trials)]))
     return results
 
-def serve_config_debug(checkpoint_path, trials, cfg_change={}, trainer=MultiPPOTrainer):
+def serve_config_debug(checkpoint_path, trials, min_interest_fraction,min_coverable_fraction,cfg_change={}, trainer=MultiPPOTrainer):
     reward_all = []
     for t in range(trials):
-        results = run_trial(trainer, checkpoint_path, t, cfg_change)
+        results = run_trial(trainer, checkpoint_path, t, min_interest_fraction,min_coverable_fraction,cfg_change)
     return results
 
 def initialize():
@@ -200,6 +203,8 @@ def eval_nocomm(env_config_func, prefix):
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint")
     parser.add_argument("--out_file")
+    parser.add_argument("--interest","--min_interesting_area_fraction",type=float, default=0.16)
+    parser.add_argument("--coverable","--min_coverable_area_fraction",type=float, default=0.6)
     parser.add_argument("-t", "--trials", type=int, default=100)
     args = parser.parse_args()
 
@@ -211,9 +216,9 @@ def eval_nocomm(env_config_func, prefix):
     for comm in [False, True]:
         cfg_change={'env_config': env_config_func(comm)}
         if not DEBUG:
-            df = serve_config(args.checkpoint, args.trials, cfg_change=cfg_change, trainer=MultiPPOTrainer)
+            df = serve_config(args.checkpoint, args.trials, args.interest,args.coverable,cfg_change=cfg_change, trainer=MultiPPOTrainer)
         else:
-            df = serve_config_debug(args.checkpoint, args.trials, cfg_change=cfg_change, trainer=MultiPPOTrainer)
+            df = serve_config_debug(args.checkpoint, args.trials, args.interest,args.coverable,cfg_change=cfg_change, trainer=MultiPPOTrainer)
         df['comm'] = comm
         results.append(df)
 
@@ -221,41 +226,13 @@ def eval_nocomm(env_config_func, prefix):
         cfg = json.load(json_file)
         if 'evaluation_config' in cfg:
             update_dict(cfg, cfg['evaluation_config'])
+        update_dict(cfg, {'env_config':  {'min_interesting_area_fraction': args.interest}})
+        update_dict(cfg, {'env_config':  {'min_coverable_area_fraction': args.coverable}})
 
     df = pd.concat(results)
-    df_1 = df
-    
-    ########## save average values in txt
-    len = cfg['env_config']['max_episode_len']*int(args.trials)*int(sum(cfg['env_config']['n_agents']))  # 345*10
-    reward_avg = None
-    reward_avg_ = None
-    for comm_ in range(2):
-        reward_role_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward_role']
-        reward_role_avg_ = reward_role_avg.to_numpy().astype(np.float64)
-        reward_role_avg_ = np.reshape(reward_role_avg_, (args.trials, cfg['env_config']['max_episode_len'],sum(cfg['env_config']['n_agents'])))      
-        reward_role_avg_ = np.sum(reward_role_avg_,axis=2)   
-        reward_role_avg_ = np.sum(reward_role_avg_,axis=1)       
-        reward_role_avg_ = np.mean(reward_role_avg_, axis=0)
-
-        reward_coverage_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward_coverage']
-        reward_coverage_avg_ = reward_coverage_avg.to_numpy().astype(np.float64)
-        reward_coverage_avg_ = np.reshape(reward_coverage_avg_, (args.trials, cfg['env_config']['max_episode_len'],sum(cfg['env_config']['n_agents'])))      
-        reward_coverage_avg_ = np.sum(reward_coverage_avg_,axis=2)   
-        reward_coverage_avg_ = np.sum(reward_coverage_avg_,axis=1)       
-        reward_coverage_avg_ = np.mean(reward_coverage_avg_, axis=0)
-        
-        reward_explore_avg = df_1.iloc[int(comm_*len):int((comm_+1)*len)]['reward_explore']
-        reward_explore_avg_ = reward_explore_avg.to_numpy().astype(np.float64)
-        reward_explore_avg_ = np.reshape(reward_explore_avg_, (args.trials, cfg['env_config']['max_episode_len'],sum(cfg['env_config']['n_agents'])))      
-        reward_explore_avg_ = np.sum(reward_explore_avg_,axis=2)   
-        reward_explore_avg_ = np.sum(reward_explore_avg_,axis=1)       
-        reward_explore_avg_ = np.mean(reward_explore_avg_, axis=0)
-
-        print("In comm {} : average_reward is {}, reward_coverage is {}, rewards_explore is {}".format(comm_, reward_role_avg_, reward_coverage_avg_, reward_explore_avg_))
-
-
     df.attrs = cfg
-    filename = prefix + "-" + path_to_hash(args.checkpoint) + ".pkl"
+    filename = prefix + "-" + "interst" +"_"+str(cfg['env_config']['min_interesting_area_fraction']) + "-" + "coverable" +"_"+str(cfg['env_config']['min_coverable_area_fraction'])+"-"+ "robots" + "_" +str(cfg['env_config']['n_agents'][1]) +"-"+str(cfg['env_config']['ALPHA']) + "explore" + "_" + str(cfg['env_config']['BETA']) + "cover" + "-" + path_to_hash(args.checkpoint) + ".pkl"
+    # filename = 'Random' + "-" + "interst" +"_"+str(cfg['env_config']['min_interesting_area_fraction']) + "-" + "coverable" +"_"+str(cfg['env_config']['min_coverable_area_fraction'])+"-"+ "robots" + "_" +str(cfg['env_config']['n_agents'][1]) +"-"+str(cfg['env_config']['ALPHA']) + "explore" + "_" + str(cfg['env_config']['BETA']) + "cover" + "-" + path_to_hash(args.checkpoint) + ".pkl"
     # os.makedirs(os.path.join(args.out_path, "eval_coop-checkpoint-.pkl"), exist_ok = True)           #makedirs 创建文件时如果路径不存在会创建这个路径
     df.to_pickle(Path(args.out_file)/filename)
 
@@ -331,6 +308,8 @@ def serve():
     parser = argparse.ArgumentParser()
     parser.add_argument("checkpoint")
     parser.add_argument("-s", "--seed", type=int, default=0)
+    parser.add_argument("--interest","--min_interesting_area_fraction",type=float, default=0.24)
+    parser.add_argument("--coverable","--min_coverable_area_fraction",type=float, default=0.6)
     parser.add_argument("-o", "--out_file", default=None)
     args = parser.parse_args()
     directory = args.out_file
@@ -348,7 +327,7 @@ def serve():
     # save_file = f"directory/image%s" % idx
     # print(save_file)
     initialize()
-    run_trial(checkpoint_path=args.checkpoint, trial=args.seed, render=True, save_file=directory)
+    run_trial(checkpoint_path=args.checkpoint, trial=args.seed,min_interest_fracrtion=args.interest, min_coverable_fraction=args.coverable,render=True, save_file=directory)
 
 if __name__ == '__main__':
     eval_nocomm_coop() # 无自私机器人评估

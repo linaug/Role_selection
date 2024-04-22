@@ -102,6 +102,7 @@ def start_experiment():
     parser.add_argument("experiment")
     parser.add_argument("-o", "--override", help='Key in alternative_config from which to take data to override main config', default=None)
     parser.add_argument("-t", "--timesteps", help="Number of total time steps for training stop condition in millions", type=int, default=20)
+    parser.add_argument("-alpha", "--alpha", type=float, default=1)
     args = parser.parse_args()
     
     try:
@@ -119,7 +120,8 @@ def start_experiment():
             exit()
         update_dict(config, config['alternative_config'][args.override])
 
-    
+    update_dict(config, {'env_config':  {'ALPHA':args.alpha}})
+    update_dict(config, {'env_config':  {'BETA':np.around(1-args.alpha,1)}})
 
     # obs_space = single_env.observation_space
     # action_space_role = single_env.action_space['role']
