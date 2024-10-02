@@ -1,4 +1,4 @@
-# Adversarial Comms
+# Adversarial Comms Lina
 Code accompanying the paper
 > [The Emergence of Adversarial Communication in Multi-Agent Reinforcement Learning](https://arxiv.org/abs/2008.02616)\
 > Jan Blumenkamp, Amanda Prorok\
