@@ -65,7 +65,7 @@ env_config:
     disabled_teams_step: [True, False]
     disabled_teams_comms: [True, False]
     min_coverable_area_fraction: 0.6
-    min_interesting_area_fraction: 0.16  # 0.24对应150个兴趣点  0.16对应100个兴趣点 0.08对应50个兴趣点 
+    min_interesting_area_fraction: 0.16 
     map_mode: random
     role_reward_mode: explore_and_cover
     reward_annealing: 0.0

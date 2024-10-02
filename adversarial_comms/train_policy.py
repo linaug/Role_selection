@@ -123,38 +123,9 @@ def start_experiment():
     update_dict(config, {'env_config':  {'ALPHA':args.alpha}})
     update_dict(config, {'env_config':  {'BETA':np.around(1-args.alpha,1)}})
 
-    # obs_space = single_env.observation_space
-    # action_space_role = single_env.action_space['role']
-    # action_space_primitive = single_env.action_space['primitive']    
-    
-    # def gen_policy(i):
-    #     config = {
-    #         "model": {
-    #             "custom_model": ["role_model", "primitive_model"][i % 2],
-    #         },
-    #     }
-    #     action_space_ = action_space_role if i%2 == 0 else action_space_primitive
-    #     return (None, obs_space, action_space_, config)
-    
-    # policies = {
-    #     "policy_role": gen_policy(0),
-    #     "policy_primitive": gen_policy(1)
-    # }
-    # policy_mapping_fn=lambda x: "default"
-
-    # update_dict(config, {"multiagent": {"policies": policies}})
-    # update_dict(config, {"multiagent": {"policy_mapping_fn": policy_mapping_fn}})
-
     config.pop('alternative_config', None)
     config['callbacks'] = EvaluationCallbacks
 
-    # config["multiagent"] = {
-    #     "policies": {
-    #         # the first tuple value is None -> uses default policy
-    #         "role": (None, obs_space, act_space['role'], {}),
-    #         "primitive": (None, obs_space, act_space['primitive'], {}),
-    
-    #     }}
 
     initialize()
     tune.run(
@@ -211,17 +182,4 @@ if __name__ == '__main__':
     
     ### Cooperative
     run_experiment("./config/coverage.yaml", {"timesteps_total": 20e6}, None)
-    run_experiment("./config/coverage_split.yaml", {"timesteps_total": 3e6}, None)
-    run_experiment("./config/path_planning.yaml", {"timesteps_total": 20e6}, None)
-
-    ### Adversarial
-    continue_experiment("checkpoint_cov", {"timesteps_total": 60e6}, "./config/coverage.yaml", "adversarial")
-    continue_experiment("checkpoint_split", {"timesteps_total": 20e6}, "./config/coverage_split.yaml", "adversarial")
-    continue_experiment("checkpoint_flow", {"timesteps_total": 60e6}, "./config/path_planning.yaml", "adversarial")
-
-    ### Re-adapt
-    continue_experiment("checkpoint_cov_adv", {"timesteps_total": 90e6}, "./config/coverage.yaml", "cooperative")
-    continue_experiment("checkpoint_split_adv", {"timesteps_total": 30e6}, "./config/coverage_split.yaml", "cooperative")
-    continue_experiment("checkpoint_flow_adv", {"timesteps_total": 90e6}, "./config/path_planning.yaml", "cooperative")
-
 

@@ -55,7 +55,6 @@ def compute_advantage_(rollout: SampleBatch, last_r:float, gamma:float, lambda_:
     rollout[Postprocessing.ADVANTAGES] = discount_cumsum(delta_t, gamma * lambda_)
     rollout[Postprocessing.VALUE_TARGETS] = (rollout[Postprocessing.ADVANTAGES] + rollout[SampleBatch.VF_PREDS]).astype(np.float32) # (32,)
     rollout[Postprocessing.ADVANTAGES] = rollout[Postprocessing.ADVANTAGES].astype(np.float32)
-    # pdb.set_trace()
     return rollout
 
 
@@ -115,13 +114,11 @@ def compute_gae_for_sample_batch(
     if not isinstance(policy.action_space, gym.spaces.Dict):
         raise InvalidActionSpace("Expect tuple action space")
     
-    # pdb.set_trace()
     len = sample_batch[SampleBatch.ACTIONS].shape[1]
     sample_batch[SampleBatch.ACTIONS_ROLE] = sample_batch[SampleBatch.ACTIONS][:,int(len/2):]
     sample_batch[SampleBatch.ACTIONS_PRIMITIVE] = sample_batch[SampleBatch.ACTIONS][:,:int(len/2)]
 
     r_shape = sample_batch[SampleBatch.VF_PREDS].shape
-    # print("r_shape is {} and role_shape is {}".format(r_shape,sample_batch[SampleBatch.VF_PREDS_ROLE].shape))
     if not sample_batch[SampleBatch.VF_PREDS_ROLE].shape == r_shape:
         aa = []
         for i in range(r_shape[0]):
@@ -136,7 +133,6 @@ def compute_gae_for_sample_batch(
         sample_batch_agent = sample_batch.copy()
         sample_batch_agent[SampleBatch.REWARDS] = (samplebatch_infos_rewards[key])
         sample_batch_agent[SampleBatch.REWARDS_ROLE] = (samplebatch_infos_rewards_role[key])
-        # sample_batch_agent[SampleBatch.REWARDS_ROLE] = (samplebatch_infos_rewards_role[key])
         if isinstance(action_space, gym.spaces.box.Box):
             assert len(action_space.shape) == 1
             a_w = action_space.shape[0]
@@ -205,7 +201,6 @@ def ppo_surrogate_loss(
         Union[TensorType, List[TensorType]]: A single loss tensor or a list
             of loss tensors.
     """
-    # pdb.set_trace()
     logits, state = model.from_batch(train_batch, is_training=True)
     curr_action_dist = dist_class(logits, model)
 
@@ -241,9 +236,6 @@ def ppo_surrogate_loss(
     mylog = open('/home/zln/ray_results/recode.log',mode='a',encoding='utf-8')
     for i in range(len(train_batch[SampleBatch.VF_PREDS][0])):
         lens_ = train_batch[SampleBatch.VF_PREDS].shape
-        # print('-*'*80)
-        # print("len is {} \n i is {} \n and logps shape is {}".format(lens_, i,logps['primitive'].shape))
-        # print('-*'*80)
         logp_ratio_primitive = torch.exp(
             logps['primitive'][:, i] -
             train_batch[SampleBatch.ACTION_LOGP][:, i])
@@ -289,7 +281,6 @@ def ppo_surrogate_loss(
 
         if policy.config["use_gae"]:
             ################### primitive ########################
-            # pdb.set_trace()
             prev_value_fn_out_primitive = train_batch[SampleBatch.VF_PREDS][..., i]
 
             value_fn_out_primitive = model.value_function()['primitive'][..., i]
@@ -341,7 +332,6 @@ def ppo_surrogate_loss(
                                            policy.entropy_coeff * entropies[:, i])
 
         # Store stats in policy for stats_fn.
-        # pdb.set_trace()
         total_loss = total_loss_primitive + total_loss_role
         mean_policy_loss = mean_policy_loss_primitive + mean_policy_loss_role
         mean_vf_loss = mean_vf_loss_primitive + mean_vf_loss_role
@@ -389,11 +379,9 @@ class ValueNetworkMixin:
         if config["use_gae"]:
 
             def value(**input_dict):
-                # pdb.set_trace()
                 input_dict = SampleBatch(input_dict)
                 input_dict = self._lazy_tensor_dict(input_dict)
                 model_out, _ = self.model(input_dict)
-                # [0] = remove the batch dim.
                 value_ = self.model.value_function()
                 return value_
 
@@ -412,19 +400,6 @@ def setup_mixins_override(policy: Policy, obs_space: gym.spaces.Space,
     """
     setup_mixins(policy, obs_space, action_space, config)
     ValueNetworkMixin.__init__(policy, obs_space, action_space, config)
-
-# def make_model(policy: Policy, obs_space: gym.spaces.Space,
-#                           action_space: gym.spaces.Space,
-#                           config: TrainerConfigDict):
-    
-#     # dist_class, logit_dim = ModelCatalog.get_action_dist(action_space, config["model"])
-
-#     # assert config["model"]["custom_model"]
-
-#     policy.model =  RoleModel(obs_space, action_space['role'], None, config['model'], 'role_model')
-#     policy.primitive_model = PrimitiveModel(obs_space, action_space['primitive'], None, config['model'], 'primitive_model')
-
-#     return policy.model
 
 # Build a child class of `TorchPolicy`, given the custom functions defined
 # above.

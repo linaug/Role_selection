@@ -27,15 +27,9 @@ from torchsummary import summary
 # https://ray.readthedocs.io/en/latest/using-ray-with-pytorch.html
 
 REWARDS_ROLE = "rewards_role"
-# PREV_REWARDS_ROLE = "prev_rewards_role"
-# VALUES_ROLE = "values_role"
 ACTIONS_ROLE = "actions_role"
-# PREV_ACTIONS_ROLE = "prev_actions_role"
 ACTIONS_PRIMITIVE = "actions_primitive"
-# PREV_ACTIONS_PRIMITIVE = "prev_actions_primitive"
 VF_PREDS_ROLE = "vf_preds_role"
-# ADVANTAGES_ROLE = "advantages_role"
-# VALUE_TARGETS_ROLE = "value_targets_role"
 
 VARIFY = False
 EXPLORE = False
@@ -268,20 +262,9 @@ class RoleModel(TorchModelV2, nn.Module):
 
         
         self.view_requirements[REWARDS_ROLE] = ViewRequirement()
-        # self.view_requirements[PREV_REWARDS_ROLE] = ViewRequirement()
         self.view_requirements[ACTIONS_ROLE] = ViewRequirement(space=self.action_space['role'])
-        # self.view_requirements[PREV_ACTIONS_ROLE] = ViewRequirement(data_col=self.view_requirements[ACTIONS_ROLE],
-        #         shift=-1,
-        #         space=self.action_space['role'])
         self.view_requirements[ACTIONS_PRIMITIVE] = ViewRequirement(space=self.action_space['primitive'])
-        # self.view_requirements[PREV_ACTIONS_PRIMITIVE] = ViewRequirement(data_col=self.view_requirements[ACTIONS_PRIMITIVE],
-        #         shift=-1,
-        #         space=self.action_space['primitive'])
         self.view_requirements[VF_PREDS_ROLE] = ViewRequirement()
-
- 
-        # self.primitive_model = _PrimitiveModel()
-
 
     def freeze_coop(self, freeze):
         all_params = \
@@ -335,8 +318,6 @@ class RoleModel(TorchModelV2, nn.Module):
         batch_size = input_dict["obs"]['gso'].shape[0]
         o_as = input_dict["obs"]['agents']
         global_as = input_dict["obs"]['merged_states']
-        # print('global shape is: {} and state shape is: {} '.format(global_as.shape,input_dict["obs"]["state"].shape))
-        # global shape is: torch.Size([32, 25, 25, 2]) and state shape is: torch.Size([32, 25, 25, 5]) 
 
         gso = input_dict["obs"]['gso'].unsqueeze(1)
         device = gso.device
@@ -390,7 +371,6 @@ class RoleModel(TorchModelV2, nn.Module):
             return role_dist            
 
         role_dist = role_logits_get()   
-        # pdb.set_trace()
         split_inputs = torch.split(role_dist,[2]*len(o_as),dim=1)
     
         role_dist_ = [Categorical(logits=split_inputs[i]) for i in range(len(split_inputs))]
@@ -398,7 +378,6 @@ class RoleModel(TorchModelV2, nn.Module):
 
         # cat the dist and role_action
         roles_explore = []
-        # roles_coverage = []
         roles_ = []
         if VARIFY:
             if EXPLORE:
@@ -411,15 +390,10 @@ class RoleModel(TorchModelV2, nn.Module):
         
             roles = roles_
 
-        # for l in range(len(roles)):
-        # #     roles_explore.append(torch.zeros_like(roles[l],dtype=torch.float32))
-        ##     roles_coverage.append(torch.ones_like(roles[l],dtype=torch.float32))
         
         role_dist_and_action = torch.cat([role_dist,torch.stack(roles,dim=-1)],dim=-1)
 
         # local encoder for actor
-        # primitive_greedy_cnn = self.primitive_greedy_convs(torch.full((o_as[0]['map'].permute(0,3,1,2).shape),100).float().to(device))
-        # primitive_coop_agents_cnn = {id_agent: self.primitive_coop_convs(torch.full((o_as[id_agent]['map'].permute(0,3,1,2).shape),100).float().to(device)) for id_agent in range(1, len(o_as))}
         primitive_greedy_cnn = self.primitive_greedy_convs(o_as[0]['map'].permute(0,3,1,2))
         primitive_coop_agents_cnn = {id_agent: self.primitive_coop_convs(o_as[id_agent]['map'].permute(0,3,1,2)) for id_agent in range(1, len(o_as))}
 
@@ -432,7 +406,6 @@ class RoleModel(TorchModelV2, nn.Module):
         primitive_values = torch.empty(batch_size, self.n_agents).to(device)
 
         primitive_logits[:, 0] = self.primitive_greedy_logits(torch.cat([primitive_greedy_cnn,roles[0].reshape(-1,1)],dim=1))
-        # primitive_logits_coverage[:, 0] = self.primitive_greedy_logits(torch.cat([primitive_greedy_cnn,roles_coverage[0].reshape(-1,1)],dim=1)) # test distribution
 
         if self.cfg['forward_values']:
             # global encoder for critic
@@ -442,9 +415,7 @@ class RoleModel(TorchModelV2, nn.Module):
             primitive_values[:, 0] = self.primitive_greedy_value_branch(torch.cat([torch.cat([primitive_greedy_value_obs_cnn, primitive_greedy_value_cnn], dim=1),roles[0].reshape(-1,1)],dim=1)).squeeze(1)
 
         for id_agent in range(1, len(o_as)):
-            # pdb.set_trace()
             primitive_logits[:, id_agent] = self.primitive_coop_logits(torch.cat([primitive_coop_agents_cnn[id_agent],roles[id_agent].reshape(-1,1)],dim=1))
-            # primitive_logits_coverage[:, id_agent] = self.primitive_coop_logits(torch.cat([primitive_coop_agents_cnn[id_agent],roles_coverage[id_agent].reshape(-1,1)],dim=1)) ####### test distribution
             if self.cfg['forward_values']:
                 primitive_value_cat = torch.cat([torch.cat([primitive_coop_value_cnn, primitive_coop_value_obs_cnn[id_agent]],dim=1), roles[id_agent].reshape(-1,1)], dim=1)
                 primitive_values[:, id_agent] = self.primitive_coop_value_branch(primitive_value_cat).squeeze(1)
@@ -452,21 +423,8 @@ class RoleModel(TorchModelV2, nn.Module):
         self._cur_value = primitive_values
 
         primitive_dist = primitive_logits.view(batch_size, self.n_agents*5)
-        # primitive_dist_coverage = primitive_logits_coverage.view(batch_size, self.n_agents*5) ####### test distribution
 
-        # dictObj = {
-        # 'explore' :primitive_dist.tolist(),
-        # 'coverage' :primitive_dist_coverage.tolist()
-        # }
-        # jsObj = json.dumps(dictObj)
-        
-        # fileObject = open('/home/zln/repos/adversarial_comms-master/adversarial_comms/environments/jsonFile.json','w')
-        # fileObject.write(jsObj)
-        # fileObject.close()
-
-        # pdb.set_trace()
         logist_totle = torch.cat([primitive_dist,role_dist_and_action],dim=-1)
-        # pdb.set_trace()
         return logist_totle, state
 
     @override(ModelV2)
@@ -480,195 +438,3 @@ class RoleModel(TorchModelV2, nn.Module):
     def value_function_role(self):
         assert self._cur_value_role is not None, "must call forward() first"
         return self._cur_value_role
-
-# class PrimitiveModel(RoleModel, nn.Module):
-#     def __init__(self, obs_space, action_space, num_outputs, model_config, name):
-#         RoleModel.__init__(self, obs_space, action_space['role'], num_outputs, model_config, name)
-#         nn.Module.__init__(self)
-
-#         self.cfg = copy.deepcopy(DEFAULT_OPTIONS)
-#         self.cfg.update(model_config['custom_model_config'])
-
-#         self.n_agents = len(obs_space.original_space['agents'])
-        
-#         self.activation = {
-#             'relu': nn.ReLU,
-#             'leakyrelu': nn.LeakyReLU
-#         }[self.cfg['activation']]
-
-#         ########### This is the encoder of local infomation ############
-#         layers = []
-#         input_shape = obs_space.original_space['agents'][0]['map'].shape
-#         (w,h,in_channels) = input_shape
-
-#         in_size = [w, h]
-#         for out_channels, kernel, stride in self.cfg['cnn_filters'][:-1]:
-#             padding, out_size = same_padding(in_size, kernel, [stride, stride])
-#             layers.append(SlimConv2d(in_channels, out_channels, kernel, stride, padding, activation_fn=self.activation))
-#             in_channels = out_channels
-#             in_size = out_size
-
-#         out_channels, kernel, stride = self.cfg['cnn_filters'][-1]
-#         layers.append(
-#             SlimConv2d(in_channels, out_channels, kernel, stride,None))
-#         layers.append(nn.Flatten(1,-1))
-
-#         self.coop_convs = nn.Sequential(*layers)
-#         self.greedy_convs = copy.deepcopy(self.coop_convs)
-
-#         self.coop_value_obs_convs = copy.deepcopy(self.coop_convs)
-#         self.greedy_value_obs_convs = copy.deepcopy(self.coop_convs)
-
-#         summary(self.coop_convs, device="cpu", input_size=(input_shape[2], input_shape[0], input_shape[1]))
-#         ########### This is the encoder of local infomation ############
-
-#         ########### This is the mlp of local infomation ############
-#         logits_inp_features = self.cnn_compression
-#         post_logits = [
-#             nn.Linear(logits_inp_features, 64),
-#             self.activation(),
-#             nn.Linear(64, 32),
-#             self.activation()
-#         ]
-#         logit_linear = nn.Linear(32, 2)
-#         nn.init.xavier_uniform_(logit_linear.weight)
-#         nn.init.constant_(logit_linear.bias, 0)
-#         post_logits.append(logit_linear)
-#         self.coop_logits = nn.Sequential(*post_logits)
-#         self.greedy_logits = copy.deepcopy(self.coop_logits)
-#         summary(self.coop_logits, device="cpu", input_size=(logits_inp_features,))
-#         ########### This is the mlp of local infomation ############
-        
-#         ########### This is the cnn of local infomation ############
-#         layers = []
-#         input_shape = np.array(obs_space.original_space['state'].shape)
-#         (w, h, in_channels) = input_shape
-
-#         in_size = [w, h]
-#         for out_channels, kernel, stride in self.cfg['value_cnn_filters'][:-1]:
-#             padding, out_size = same_padding(in_size, kernel, [stride, stride])
-#             layers.append(SlimConv2d(in_channels, out_channels, kernel, stride, padding, activation_fn=self.activation))
-#             in_channels = out_channels
-#             in_size = out_size
-
-#         out_channels, kernel, stride = self.cfg['value_cnn_filters'][-1]
-#         layers.append(
-#             SlimConv2d(in_channels, out_channels, kernel, stride, None))
-#         layers.append(nn.Flatten(1, -1))
-
-#         self.greedy_value_cnn = nn.Sequential(*layers)
-#         self.coop_value_cnn = copy.deepcopy(self.greedy_value_cnn)
-#         summary(self.greedy_value_cnn, device="cpu", input_size=(input_shape[2], input_shape[0], input_shape[1]))
-#          ########### This is the cnn of local infomation ############
-
-#         ########### This is the cnn of global infomation ############
-#         layers = [
-#             nn.Linear(self.cfg['value_cnn_compression'], 64),
-#             self.activation(),
-#             nn.Linear(64, 32),
-#             self.activation()
-#         ]
-#         values_linear = nn.Linear(32, 1)
-#         normc_initializer()(values_linear.weight)
-#         nn.init.constant_(values_linear.bias, 0)
-#         layers.append(values_linear)
-
-#         self.coop_value_branch = nn.Sequential(*layers)
-#         self.greedy_value_branch = copy.deepcopy(self.coop_value_branch)
-#         summary(self.coop_value_branch, device="cpu", input_size=(self.cfg['value_cnn_compression'],))
-#         ########### This is the cnn of global infomation ############
-
-#         self._cur_value = None
-
-#         self.freeze_coop_value(self.cfg['freeze_coop_value'])
-#         self.freeze_greedy_value(self.cfg['freeze_greedy_value'])
-#         self.freeze_coop(self.cfg['freeze_coop'])
-#         self.freeze_greedy(self.cfg['freeze_greedy'])
-    
-#     @override(ModelV2)
-#     def forward(self, input_dict, state, seq_lens, roles):
-#         batch_size = input_dict["obs"]['gso'].shape[0]
-#         o_as = input_dict["obs"]['agents']
-
-#         gso = input_dict["obs"]['gso'].unsqueeze(1)
-#         device = gso.device
-
-#         primitive_greedy_obs_cnn = self.greedy_convs(o_as[0]['map']).permute(0,3,1,2)
-#         primitive_coop_agents_obs_cnn = {id_agent: self.coop_convs(o_as[id_agent]['map'].permute(0,3,1,2)) for id_agent in range(1, len(o_as))}
-
-#         primitive_greedy_value_obs_cnn = self.greedy_value_obs_convs(o_as[0]['map'].permute(0, 3, 1, 2))
-#         primitive_coop_value_obs_cnn = {id_agent: self.coop_value_obs_convs(o_as[id_agent]['map'].permute(0, 3, 1, 2)) for id_agent in range(1, len(o_as))}
-
-        
-#         primitive_logits = torch.empty(batch_size, self.n_agents, 5).to(device)
-#         primitive_values = torch.empty(batch_size, self.n_agents).to(device)
-
-#         primitive_logits[:, 0] = self.greedy_logits(primitive_greedy_obs_cnn,roles[0])
-
-
-#         if self.cfg['forward_values']:
-#             primitive_greedy_value_cnn = self.greedy_value_cnn(input_dict["obs"]["state"].permute(0, 3, 1, 2))
-#             primitive_coop_value_cnn = self.coop_value_cnn(input_dict["obs"]["state"].permute(0, 3, 1, 2))
-
-#             primitive_values[:, 0] = self.greedy_value_branch(torch.cat([primitive_greedy_value_obs_cnn, primitive_greedy_value_cnn, roles[0]], dim=1)).squeeze(1)
-
-#         for id_agent in range(1, len(o_as)):
-#             primitive_logits[:, id_agent] = self.coop_logits(primitive_coop_agents_obs_cnn,roles[1][id_agent])
-
-#             if self.cfg['forward_values']:
-#                 primitive_value_cat = torch.cat([primitive_coop_value_cnn, primitive_coop_value_obs_cnn[id_agent], roles[1][id_agent]], dim=1)
-#                 primitive_values[:, id_agent] = self.coop_value_branch(primitive_value_cat).squeeze(1)
-
-#         self._cur_value = primitive_values
-#         return primitive_logits.view(batch_size, self.n_agents*5), state
-
-#     def freeze_coop(self, freeze):
-#         all_params = \
-#             list(self.coop_convs.parameters()) + \
-#             list(self.coop_logits.parameters())
-
-#         for param in all_params:
-#             param.requires_grad = not freeze
-
-#     def freeze_greedy(self, freeze):
-#         all_params = \
-#             list(self.greedy_logits.parameters()) + \
-#             list(self.greedy_convs.parameters())
-
-#         for param in all_params:
-#             param.requires_grad = not freeze
-
-#     def freeze_greedy_value(self, freeze):
-#         all_params = \
-#             list(self.greedy_value_branch.parameters()) + \
-#             list(self.greedy_value_cnn.parameters()) + \
-#             list(self.greedy_value_obs_convs)
-
-#         for param in all_params:
-#             param.requires_grad = not freeze
-
-#     def freeze_coop_value(self, freeze):
-#         all_params = \
-#             list(self.coop_value_cnn.parameters()) + \
-#             list(self.coop_value_branch.parameters()) + \
-#             list(self.coop_value_obs_convs)
-
-#         for param in all_params:
-#             param.requires_grad = not freeze
-
-
-
-# class AdversarialModel():
-#     def __init__(self,obs_space, action_space_1, action_space_2,num_outputs_1, num_outputs_2, model_config_1, model_config_2, name_1, name_2):
-#         self.role_model = RoleModel(obs_space, action_space_1, num_outputs_1, model_config_1, name_1)
-#         self.primitive_model = PrimitiveModel(obs_space, action_space_2, num_outputs_2, model_config_2, name_2)
-
-#     def forward(self,input_dict, state, seq_lens): #加两类
-#         role_output = self.role_model(input_dict, state, seq_lens)
-#         # roles = role_selector(role_output)      2->1
-
-#         primitive_output = self.primitive_model(input_dict, state, seq_lens, roles.float())
-
-#         return role_output,primitive_output
-    
-    

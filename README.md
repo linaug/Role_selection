@@ -19,7 +19,7 @@ The policy training follows this scheme:
 train_policy coverage -t [total time steps in millions]
 
 ```
-where `-t` is the total number of time steps at which the experiment is to be terminated (note that this is not per call, but total time steps, so if a policy is trained with `train_policy -t 20` and `-o` is a config option (one of `{self_interested, re_adapt}` as can be found in the `alternative_config` key in each of the config files in `config`).
+where `-t` is the total number of time steps at which the experiment is to be terminated
 
 When running each experiment, Ray will print the trial name to the terminal, which looks something like `MultiPPO_coverage_f4dc4_00000`. By default, Ray will create the directory `~/ray_results/MultiPPO` in which the trial with the given name can be found with its checkpoint. 
 
