@@ -69,30 +69,18 @@ class WorldMap():
             else:
                 self.map = np.ones(self.shape, dtype=np.uint8)
                 p = np.array([random_state.randint(0, self.shape[c]) for c in [Y, X]])
-                # print('p',p)
                 while self.get_coverable_area_faction() < self.min_coverable_area_fraction:
                     d_p = np.array([[0, 1], [0, -1], [-1, 0], [1, 0]][random_state.randint(0, 4)])   #*random_state.randint(1, 5)
-                    # print('d_p',d_p)
                     p_new = np.clip(p + d_p, [0,0], np.array(self.shape)-1)
-                    # print('p_new',p_new)
                     self.map[min(p[Y],p_new[Y]):max(p[Y],p_new[Y])+1, min(p[X],p_new[X]):max(p[X],p_new[X])+1] = 0
-                    # print(min(p[Y],p_new[Y]),max(p[Y],p_new[Y])+1, min(p[X],p_new[X]),max(p[X],p_new[X])+1)
                     p = p_new
-                    # pdb.set_trace()
         elif mode == "split_half_fixed" or mode == "split_half_fixed_block" or mode == "split_half_fixed_block_same_side":
             self.map = np.zeros(self.shape, dtype=np.uint8)
             self.map[:, int(self.shape[X]/2)] = 1
             if mode == "split_half_fixed":
                 self.map[int(self.shape[Y]/2), int(self.shape[X]/2)] = 0
 
-        # 设置障碍物，随机生成N个
-        # interestings = 0
-        # interesting_num = 10
         self.interesting = np.zeros(self.shape, dtype=np.int)
-        print('*'*80)
-        print('min_coverable_area_fraction:',self.min_coverable_area_fraction)
-        print('min_interesting_area_fraction:',self.min_interesting_area_fraction)
-        print('*'*80)
         while self.get_interesting_area_fraction() < self.min_interesting_area_fraction:
             p_interestings = np.array([random_state.randint(0,self.shape[c]) for c in [Y,X]])
             if self.map[p_interestings[Y],p_interestings[X]] == 0:
@@ -101,7 +89,6 @@ class WorldMap():
         self.exploration = np.ones(self.shape, dtype = np.uint8)
 
         self.frontier = np.zeros(self.shape,dtype=np.uint8)
-
 
         # define two merged map, are eplored map and coverd map, respectively.
         self.merge_exploration = np.zeros_like(self.exploration)
@@ -210,7 +197,7 @@ class Robot():
         self.reward_coverage = 0
         self.reward_loudian = 0
         self.explored_area = 0
-        self.duplicate_coverage_reward = 0  # lina
+        self.duplicate_coverage_reward = 0
 
     def step(self, action, action_role, alpha, beta):
         self.action_role = action_role
@@ -234,8 +221,8 @@ class Robot():
 
         def cal_loudian():
             interesting_map_ = np.where(self.world.map.exploration==0,self.world.map.interesting,0)
-            uncover_in_explored = np.sum((interesting_map_==1)) # 已经探索区域内的未覆盖的兴趣点之和
-            explored = np.sum((self.world.map.exploration==0)) # 已探索区域大小
+            uncover_in_explored = np.sum((interesting_map_==1)) 
+            explored = np.sum((self.world.map.exploration==0))
             if explored == 0:
                 return 0
             else:
@@ -243,10 +230,10 @@ class Robot():
         
         def cal_covered():
             interesting_map_ = np.where(self.world.map.exploration==0,self.world.map.interesting,0)
-            uncover_in_explored = np.sum((interesting_map_==1)) # 已经探索区域内的未覆盖的兴趣点之和
+            uncover_in_explored = np.sum((interesting_map_==1)) 
             uncover_in_unexpolored = np.sum((np.where(self.world.map.exploration==1,self.world.map.interesting,0)==1)) #未探索区域内的兴趣点
             all_interest_point = self.min_interesting_area_fraction*self.world_shape[0]*self.world_shape[0]
-            explored = np.sum((self.world.map.exploration==0)) # 已探索区域大小
+            explored = np.sum((self.world.map.exploration==0))
 
             if explored == 0:
                 return 0
@@ -255,7 +242,6 @@ class Robot():
             
         loudian_pre = cal_loudian()
 
-        # if self.world.map.coverage[self.pose[Y], self.pose[X]] == 0:
         if self.world.map.interesting[self.pose[Y], self.pose[X]] == 1:
             self.world.map.coverage[self.pose[Y], self.pose[X]] = self.index
             self.world.map.interesting[self.pose[Y], self.pose[X]] = 0 # 如果压到覆盖点，那就把兴趣点至为0
@@ -270,7 +256,6 @@ class Robot():
         self.coverage[self.pose[Y], self.pose[X]] = True
 
         area_exploration_prev = np.sum(self.world.map.exploration)
-        # 探索区域的更新
         self.explored_area = 0
         for exploration in list(self.dalta_exploration_pos):
             exploration_pos = self.pose + exploration
@@ -280,15 +265,10 @@ class Robot():
                 self.world.map.exploration[exploration_pos[Y],exploration_pos[X]] = 0
                 
 
-        # 计算探索奖励
         area_exploration_now = np.sum(self.world.map.exploration)
         explore_area_diff = area_exploration_prev - area_exploration_now            
         self.reward_explore = explore_area_diff/self.explore_ability if not (self.prev_pose == self.pose).all() else 0
 
-        # self.reward = self.reward_explore if self.action_role == 0 else self.reward_coverage
-        # self.reward = self.reward_explore
-
-        # 计算漏点率
         loudian_now = cal_loudian()
 
         self.ratio_covered = cal_covered()
@@ -298,8 +278,6 @@ class Robot():
         else:
             self.reward_loudian = math.tanh(15*(loudian_pre-loudian_now))
 
-        # mylog = open('/home/zln/adv_results/search_rescue/0725_interest_100/train_only_loudian/log.log',mode='a',encoding='utf-8')
-
         if self.role_reward_mode == "explore_and_loudian":
             self.reward =  alpha*self.reward_explore + beta*self.reward_loudian
             self.reward_role =  alpha*self.reward_explore + beta*self.reward_loudian
@@ -307,21 +285,13 @@ class Robot():
             self.reward_role =  alpha*self.reward_explore + beta*self.reward_coverage
             self.reward =  alpha*self.reward_explore + beta*self.reward_coverage
         
-        # print("loudian_diff is {} \n loudian reward in 5 is {} \n loudian reward in 15 is {} \n loudian reward in 20 is {}".
-        #       format(loudian_pre-loudian_now,self.reward_loudian, math.tanh(15*(loudian_pre-loudian_now)),math.tanh(20*(loudian_pre-loudian_now))),
-        #       file=mylog)
-
-        # mylog.close()
-
     def update_state(self):
         coverage = self.coverage.copy().astype(np.int)
 
         self.world.map.exploration = np.where(self.world.map.frontier==1,0,self.world.map.exploration)
 
-        # 依据探索情况更新obstacle_map
         obstacle_map = np.where(self.world.map.exploration==0,self.world.map.map,0)
 
-        # 依据探索情况更新兴趣点覆盖全情况
         interesting_map = np.where(self.world.map.exploration==0,self.world.map.interesting,0)
 
         frontier_map = self.world.map.frontier.copy()
@@ -338,11 +308,9 @@ class Robot():
         state_output_shape = np.array([self.state_size]*2, dtype=int)
         state_data = [
             self.to_coordinate_frame(obstacle_map, state_output_shape, fill=1),
-            # self.to_coordinate_frame(coverage, state_output_shape, fill=0),
             self.to_coordinate_frame(interesting_map,state_output_shape,fill=0),
             self.to_coordinate_frame(frontier_map,state_output_shape,fill=0)
         ]
-        # if self.agent_observability_radius is not None:
         pose_map = np.zeros(self.world.map.shape, dtype=np.uint8)
 
         for team in self.world.teams.values():
@@ -374,27 +342,15 @@ class CoverageEnv(gym.Env, EzPickle):
         self.cfg.update(env_config)
 
         self.fig = None
-        # self.map_colormap = colors.ListedColormap(['white', 'black', 'red','lawngreen','gray'])  # free, obstacle, unknown
         self.map_colormap = colors.ListedColormap(['white', 'dimgray', 'darkorange','lime','b'])  # free, obstacle, unknown
 
-        # 以前机器人的颜色
-        # hsv = np.ones((self.cfg['n_agents'][1], 3))
-        # hsv[..., 0] = np.linspace(160/360, 250/360, self.cfg['n_agents'][1] + 1)[:-1]  #（开始，结束，段数）
-        # self.teams_agents_color = {
-        #     0: [(1, 0, 0)],
-        #     1: colors.hsv_to_rgb(hsv)
-        # }
-        
-        # 现在每个机器人的轨迹一个颜色
-        colors_list = [(0.5, 0, 0.5),  # 紫色
-               (1, 0, 0),      # 红色
-               (0, 0, 1),      # 蓝色
+        colors_list = [(0.5, 0, 0.5),  # purple
+               (1, 0, 0),      # red
+               (0, 0, 1),      # blue
                (0, 1, 1)] 
         team_colors = np.zeros((self.cfg['n_agents'][1], 3))
         for i in range(len(colors_list)):
-            team_colors[i] = colors_list[i]
-        # hue_range = np.linspace(colors_range[0], colors_range[-1],self.cfg['n_agents'][1] + 1)[:-1]  #（开始，结束，段数）# 蓝色色系     
-        
+            team_colors[i] = colors_list[i]        
 
         self.teams_agents_color = {
             0: [(1, 0, 0)],
@@ -414,8 +370,7 @@ class CoverageEnv(gym.Env, EzPickle):
         hsv = np.ones((len(self.cfg['n_agents']), 3))
         hsv[..., 0] = np.linspace(0, 1, len(self.cfg['n_agents']) + 1)[:-1]
 
-        # self.teams_colors = ['r', 'b'] #colors.hsv_to_rgb(hsv)
-        self.teams_colors = ['lawngreen', 'b'] # 改变机器人和障碍物体的颜色
+        self.teams_colors = ['lawngreen', 'b'] 
 
         n_all_agents = sum(self.cfg['n_agents'])
         self.observation_space = spaces.Dict({
@@ -476,7 +431,6 @@ class CoverageEnv(gym.Env, EzPickle):
     def seed(self, seed=None):
         self.agent_random_state, seed_agents = seeding.np_random(seed)
         self.world_random_state, seed_world = seeding.np_random(seed)
-        # print("seed in fcuntion is {} /n seed_agents is {} /n seed_world is {}:".format(seed,seed_agents,seed_world))
         return [seed_agents, seed_world]
 
     def reset(self):
@@ -573,8 +527,6 @@ class CoverageEnv(gym.Env, EzPickle):
         return gso
 
     def step(self, actions):
-        # print('-'*80)
-        # print("env_actions",actions)
         primitive_actions = actions['primitive']
         role_actions = actions['role']
         self.timestep += 1
@@ -585,22 +537,13 @@ class CoverageEnv(gym.Env, EzPickle):
                     agent.step(primitive_actions[action_index],role_actions[action_index],self.cfg['ALPHA'], self.cfg['BETA'])
                 action_index += 1
 
-        # 基于探索区域更新每个map
-        #获取边界点地图
         map_exploration = torch.from_numpy(self.map.exploration).reshape(1,1,self.cfg['world_shape'][Y],self.cfg['world_shape'][X]).float()
         pool = nn.AvgPool2d(3,stride=1,padding=1,ceil_mode=True)
         frontier_map = pool(map_exploration)
         frontier_map = torch.where(map_exploration<1,1,0) & torch.where((frontier_map>0)&(frontier_map<1),1,0)
         self.map.frontier = frontier_map.numpy().reshape(self.cfg['world_shape'][Y],self.cfg['world_shape'][X])
 
-        self.map.frontier = np.where(self.map.map==0,self.map.frontier,0)
-
-        # 依据探索情况更新obstacle_map
-        # self.map.map = np.where(self.map.exploration==0,self.map.map,0)
-
-        # 依据探索情况更新兴趣点覆盖全情况
-        # self.map.interesting = np.where(self.map.exploration==0,self.map.interesting,0)
-        
+        self.map.frontier = np.where(self.map.map==0,self.map.frontier,0)        
 
         states, rewards, rewards_explore, rewards_coverage, rewards_loudian, duplicate_coverage_rewards, rewards_role,explored_areas = {},{}, {}, {},{},{},{},{}
         for team_key, team in self.teams.items():
@@ -819,9 +762,6 @@ class CoverageEnv(gym.Env, EzPickle):
         coverage = np.where(self.map.frontier==1,0,coverage)
 
         # demo for role-selection
-        #  # coverage = self.map.exploration.copy()
-        # coverage = np.ones_like(self.map.exploration)
-        # # coverage = np.where(self.map.frontier==1,0,coverage)
 
         # mark coverage on left side as gray
         color_index_left_side = len(all_team_colors)
@@ -850,14 +790,13 @@ class CoverageEnv(gym.Env, EzPickle):
                 im.set_data(colors.ListedColormap([(0, 0, 0, 0), color])(agent.coverage))
 
     def render_overview(self, ax, stepsize=1.0):
-        if not hasattr(self, 'im_map'):  # 判断是否包含对应的属性
+        if not hasattr(self, 'im_map'):
             ax.set_xticks([])
             ax.set_yticks([])
             self.im_map = ax.imshow(np.zeros(self.map.shape), vmin=0, vmax=3)
 
-        # 添加多有的点至map中
         render_map = np.where(self.map.interesting==1,2,self.map.map)
-        render_map = np.where(self.map.frontier==1,3,render_map)  # 不显示边界点for outsputs envs
+        render_map = np.where(self.map.frontier==1,3,render_map)
 
         self.im_map.set_data(self.map_colormap(render_map))
 
@@ -866,29 +805,19 @@ class CoverageEnv(gym.Env, EzPickle):
                 continue
             for (agent_i, agent), color in zip(enumerate(team), team_colors):
                 rect_size = 1
-                # 不显示机器人 for outsputs envs
                 pose_microstep = agent.prev_pose + (agent.pose - agent.prev_pose)*stepsize
                 rect = patches.Rectangle((pose_microstep[1] - rect_size / 2, pose_microstep[0] - rect_size / 2), rect_size, rect_size,
                                          linewidth=1, edgecolor=self.teams_colors[team_key], facecolor='none') # 机器人颜色不一样的话是edgecolor=color, 一样的话就是self.team_colors[team_key]
                 ax.add_patch(rect)
                 
-                # 不显示role action for outsputs envs
+                # not represent role action for outsputs envs
                 # role = 'explore' if agent.action_role == 0 else 'cover'
                 # ax.text(agent.pose[1]-1.7, agent.pose[0]-0.8, role, color=self.teams_colors[team_key], clip_on=True)
                 
-                # 画轨迹
+                # crave trajectory
                 x_values = [agent.prev_pose[1], agent.pose[1]]
                 y_values = [agent.prev_pose[0], agent.pose[0]]
                 ax.plot(x_values, y_values, color=color, linewidth=2)
-                
-                # pdb.set_trace()
-                
-
-        #last_reward = sum([r.reward for r in self.robots.values()])
-        #ax.set_title(
-        #    f'Global coverage: {int(self.map.get_coverage_fraction()*100)}%\n'
-        #    #f'Last reward (r): {last_reward:.2f}'
-        #)
 
     def render_connectivity(self, ax, agent_id, K):
         if K <= 1:
